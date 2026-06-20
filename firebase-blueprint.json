@@ -1,0 +1,65 @@
+{
+  "$schema": "https://raw.githubusercontent.com/firebase/firebase-blueprint/main/schema.json",
+  "name": "EPS Planner",
+  "storage": [],
+  "firestore": {
+    "collections": [
+      {
+        "name": "teachers",
+        "description": "Teachers in the school",
+        "securityRules": {
+          "read": "if true;",
+          "write": "if true;"
+        }
+      },
+      {
+        "name": "classes",
+        "description": "Classes in the school",
+        "securityRules": {
+          "read": "if true;",
+          "write": "if true;"
+        }
+      },
+      {
+        "name": "facilities",
+        "description": "Sports facilities",
+        "securityRules": {
+          "read": "if true;",
+          "write": "if true;"
+        }
+      },
+      {
+        "name": "cycles",
+        "description": "Planning cycles (periods)",
+        "securityRules": {
+          "read": "if true;",
+          "write": "if true;"
+        }
+      },
+      {
+        "name": "absences",
+        "description": "Class absences/internships",
+        "securityRules": {
+          "read": "if true;",
+          "write": "if true;"
+        }
+      },
+      {
+        "name": "courses",
+        "description": "Schedule courses",
+        "securityRules": {
+          "read": "if true;",
+          "write": "if true;"
+        }
+      },
+      {
+        "name": "settings",
+        "description": "Global settings",
+        "securityRules": {
+          "read": "if true;",
+          "write": "if true;"
+        }
+      }
+    ]
+  }
+}
