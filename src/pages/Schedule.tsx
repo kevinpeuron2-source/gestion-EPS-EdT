@@ -89,18 +89,18 @@ export default function Schedule() {
                 ))}
 
                 {/* Recess & Lunch Blocks background */}
-                {settings?.recessTimes?.map((r, i) => {
+                {settings?.recessTimes?.map(r => {
                   const s = timeToMinutes(r.start) - TIME_START * 60;
                   const duration = timeToMinutes(r.end) - timeToMinutes(r.start);
                   if (s < 0) return null;
-                  return <div key={'rec'+i} className="absolute w-full bg-pink-50/50 border-y border-pink-100 flex items-center justify-center opacity-70" style={{ top: s * PX_PER_MINUTE, height: duration * PX_PER_MINUTE }}><span className="text-[10px] text-pink-500 font-bold uppercase tracking-wider">Récréation</span></div>;
+                  return <div key={r.id || r.start} className="absolute w-full bg-pink-50/50 border-y border-pink-100 flex items-center justify-center opacity-70 pointer-events-none" style={{ top: s * PX_PER_MINUTE, height: duration * PX_PER_MINUTE }}><span className="text-[10px] text-pink-500 font-bold uppercase tracking-wider">{r.name || 'Récréation'}</span></div>;
                 })}
                 {settings?.lunchBreak && (
                   (() => {
                     const s = timeToMinutes(settings.lunchBreak.start) - TIME_START * 60;
                     const duration = timeToMinutes(settings.lunchBreak.end) - timeToMinutes(settings.lunchBreak.start);
                     if (s < 0) return null;
-                    return <div className="absolute w-full bg-amber-50/50 border-y border-amber-100 flex items-center justify-center opacity-70" style={{ top: s * PX_PER_MINUTE, height: duration * PX_PER_MINUTE }}><span className="text-[10px] text-amber-600 font-bold uppercase tracking-wider">Méridienne</span></div>;
+                    return <div className="absolute w-full bg-amber-50/50 border-y border-amber-100 flex items-center justify-center opacity-70 pointer-events-none" style={{ top: s * PX_PER_MINUTE, height: duration * PX_PER_MINUTE }}><span className="text-[10px] text-amber-600 font-bold uppercase tracking-wider">Méridienne</span></div>;
                   })()
                 )}
 
@@ -191,14 +191,6 @@ export default function Schedule() {
                   <option value="">-- Choisir --</option>
                   {teachers.map(t => <option key={t.id} value={t.id}>{t.name}</option>)}
                 </select>
-              </div>
-              <div className="space-y-1">
-                <label className="text-xs font-medium text-slate-600">Installation (Manuel)</label>
-                <select value={fId} onChange={e=>setFId(e.target.value)} className="form-select w-full text-sm rounded-md border-slate-300 bg-white">
-                  <option value="">-- Automatique ou Aucune --</option>
-                  {facilities.map(f => <option key={f.id} value={f.id}>{f.name}</option>)}
-                </select>
-                <p className="text-[10px] text-slate-400 leading-tight pt-1">Si laissé vide, l'optimiseur de l'onglet Installations pourra lui attribuer un lieu.</p>
               </div>
               
               <div className="pt-4 flex gap-3">

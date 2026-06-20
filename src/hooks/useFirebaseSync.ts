@@ -2,10 +2,10 @@ import { useEffect } from "react";
 import { collection, onSnapshot, query } from "firebase/firestore";
 import { db } from "../lib/firebase";
 import { useStore } from "../store/useStore";
-import { Teacher, ClassGroup, Facility, Cycle, Absence, Course, Settings } from "../types";
+import { Teacher, ClassGroup, Facility, Activity, Absence, Course, Settings, ScheduledActivity } from "../types";
 
 export function useFirebaseSync() {
-  const { setTeachers, setClasses, setFacilities, setCycles, setAbsences, setCourses, setSettings, setLoading } = useStore();
+  const { setTeachers, setClasses, setFacilities, setActivities, setScheduledActivities, setAbsences, setCourses, setSettings, setLoading } = useStore();
 
   useEffect(() => {
     let unsubs: (() => void)[] = [];
@@ -21,7 +21,8 @@ export function useFirebaseSync() {
     unsubs.push(subscribe("teachers", (d) => setTeachers(d as Teacher[])));
     unsubs.push(subscribe("classes", (d) => setClasses(d as ClassGroup[])));
     unsubs.push(subscribe("facilities", (d) => setFacilities(d as Facility[])));
-    unsubs.push(subscribe("cycles", (d) => setCycles(d as Cycle[])));
+    unsubs.push(subscribe("activities", (d) => setActivities(d as Activity[])));
+    unsubs.push(subscribe("scheduledActivities", (d) => setScheduledActivities(d as ScheduledActivity[])));
     unsubs.push(subscribe("absences", (d) => setAbsences(d as Absence[])));
     unsubs.push(subscribe("courses", (d) => setCourses(d as Course[])));
 

@@ -44,19 +44,52 @@ export default function Settings() {
     }
   };
 
-  // Basic global time settings (Recess, Lunch break)
-  const saveTimes = async (e: React.FormEvent<HTMLFormElement>) => {
+  // Basic global time settings (Recess, Lunch break, School Year)
+  const [recesses, setRecesses] = useState([...(settings?.recessTimes || [{ id: "rec-init", start: "10:15", end: "10:30", name: "Matin" }])]);
+  const [lunchBreak, setLunchBreak] = useState(settings?.lunchBreak || { start: "12:30", end: "14:00" });
+  const [schoolYearWeeks, setSchoolYearWeeks] = useState(settings?.schoolYearWeeks || 36);
+  const [holidays, setHolidays] = useState([...(settings?.holidays || [])]);
+
+  React.useEffect(() => {
+    if (settings) {
+      if (settings.recessTimes) setRecesses(settings.recessTimes);
+      if (settings.lunchBreak) setLunchBreak(settings.lunchBreak);
+      if (settings.schoolYearWeeks) setSchoolYearWeeks(settings.schoolYearWeeks);
+      if (settings.holidays) setHolidays(settings.holidays);
+    }
+  }, [settings]);
+
+  const addRecess = () => {
+    setRecesses([...recesses, { id: Date.now().toString(), start: "16:00", end: "16:15", name: "Après-midi" }]);
+  };
+
+  const removeRecess = (id: string) => {
+    setRecesses(recesses.filter(r => r.id !== id));
+  };
+
+  const updateRecess = (id: string, field: string, value: string) => {
+    setRecesses(recesses.map(r => r.id === id ? { ...r, [field]: value } : r));
+  };
+
+  const addHoliday = () => {
+    setHolidays([...holidays, { id: Date.now().toString(), startWeek: 1, endWeek: 2, name: "Vacances" }]);
+  };
+
+  const removeHoliday = (id: string) => {
+    setHolidays(holidays.filter(h => h.id !== id));
+  };
+
+  const updateHoliday = (id: string, field: string, value: any) => {
+    setHolidays(holidays.map(h => h.id === id ? { ...h, [field]: value } : h));
+  };
+
+  const saveSettings = async (e: React.FormEvent) => {
     e.preventDefault();
-    const data = new FormData(e.currentTarget);
-    const recStart = data.get("recStart") as string;
-    const recEnd = data.get("recEnd") as string;
-    const lunchStart = data.get("lunchStart") as string;
-    const lunchEnd = data.get("lunchEnd") as string;
-    
-    // We will assume 1 recess time for simplicity in this baseline form, though model allows many
     const updated = {
-      recessTimes: [{ start: recStart, end: recEnd }],
-      lunchBreak: { start: lunchStart, end: lunchEnd },
+      recessTimes: recesses,
+      lunchBreak,
+      schoolYearWeeks,
+      holidays,
       bellTimes: settings?.bellTimes || ["08:00"],
       updatedAt: new Date()
     };
@@ -66,7 +99,7 @@ export default function Settings() {
     } else {
       await setDoc(doc(collection(db, "settings"), "main"), updated);
     }
-    alert("Horaires enregistrés");
+    alert("Paramètres enregistrés");
   };
 
   return (
@@ -80,29 +113,74 @@ export default function Settings() {
         {/* Global Timings */}
         <section className="bg-white p-6 rounded-xl border border-slate-200 shadow-sm col-span-1 md:col-span-2 flex flex-col justify-between">
           <div>
-            <h3 className="text-sm font-bold text-slate-500 uppercase mb-4">Horaires de l'établissement</h3>
-            <form onSubmit={saveTimes} className="space-y-4">
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-6">
-                <div className="space-y-3 bg-slate-50 p-4 rounded-lg border border-slate-100">
-                  <h4 className="text-sm font-medium text-slate-700">Récréation</h4>
-                  <div className="flex items-center gap-2">
-                    <input name="recStart" type="time" defaultValue={settings?.recessTimes[0]?.start || "10:15"} className="form-input text-sm rounded-md border-slate-300 w-full" required />
-                    <span className="text-slate-400 text-sm">à</span>
-                    <input name="recEnd" type="time" defaultValue={settings?.recessTimes[0]?.end || "10:30"} className="form-input text-sm rounded-md border-slate-300 w-full" required />
+            <h3 className="text-sm font-bold text-slate-500 uppercase mb-4">Fonctionnement de l'établissement</h3>
+            <form onSubmit={saveSettings} className="space-y-6">
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                
+                {/* Year settings */}
+                <div className="space-y-4">
+                  <div className="bg-slate-50 p-4 rounded-lg border border-slate-100">
+                     <h4 className="text-sm font-medium text-slate-700 mb-3">Année scolaire</h4>
+                     <div className="flex items-center justify-between gap-4">
+                        <label className="text-sm text-slate-600">Nombre de semaines (cycle)</label>
+                        <input type="number" min="1" max="52" value={schoolYearWeeks} onChange={e => setSchoolYearWeeks(parseInt(e.target.value))} className="form-input text-sm rounded-md border-slate-300 w-24" />
+                     </div>
+                  </div>
+
+                  <div className="bg-slate-50 p-4 rounded-lg border border-slate-100">
+                    <div className="flex justify-between items-center mb-3">
+                      <h4 className="text-sm font-medium text-slate-700">Périodes de vacances</h4>
+                      <button type="button" onClick={addHoliday} className="text-xs text-blue-600 hover:text-blue-700 font-medium">+ Ajouter</button>
+                    </div>
+                    <div className="space-y-2">
+                      {holidays.map(h => (
+                        <div key={h.id} className="flex items-center gap-2 bg-white p-2 rounded border border-slate-200 shadow-sm">
+                          <input type="text" value={h.name} onChange={e => updateHoliday(h.id, "name", e.target.value)} placeholder="Nom (ex: Toussaint)" className="form-input text-xs rounded border-slate-300 flex-1" />
+                          <input type="number" min="1" max="52" value={h.startWeek} onChange={e => updateHoliday(h.id, "startWeek", parseInt(e.target.value))} className="form-input text-xs rounded border-slate-300 w-16" title="Semaine de début" />
+                          <span className="text-slate-400 text-xs">à</span>
+                          <input type="number" min="1" max="52" value={h.endWeek} onChange={e => updateHoliday(h.id, "endWeek", parseInt(e.target.value))} className="form-input text-xs rounded border-slate-300 w-16" title="Semaine de fin" />
+                          <button type="button" onClick={() => removeHoliday(h.id)} className="text-slate-400 hover:text-red-500"><Trash2 className="w-3.5 h-3.5" /></button>
+                        </div>
+                      ))}
+                      {holidays.length === 0 && <p className="text-xs text-slate-400 italic">Aucune vacance configurée</p>}
+                    </div>
                   </div>
                 </div>
-                <div className="space-y-3 bg-amber-50 p-4 rounded-lg border border-amber-100">
-                  <h4 className="text-sm font-medium text-amber-800">Pause méridienne</h4>
-                  <div className="flex items-center gap-2">
-                    <input name="lunchStart" type="time" defaultValue={settings?.lunchBreak?.start || "12:30"} className="form-input text-sm rounded-md border-amber-200 w-full bg-white text-amber-900" required />
-                    <span className="text-amber-600 text-sm">à</span>
-                    <input name="lunchEnd" type="time" defaultValue={settings?.lunchBreak?.end || "14:00"} className="form-input text-sm rounded-md border-amber-200 w-full bg-white text-amber-900" required />
+
+                {/* Day settings */}
+                <div className="space-y-4">
+                  <div className="bg-amber-50 p-4 rounded-lg border border-amber-100">
+                    <h4 className="text-sm font-medium text-amber-800 mb-3">Pause méridienne</h4>
+                    <div className="flex items-center gap-2">
+                      <input type="time" value={lunchBreak.start} onChange={e => setLunchBreak({ ...lunchBreak, start: e.target.value })} className="form-input text-sm rounded-md border-amber-200 w-full bg-white text-amber-900" required />
+                      <span className="text-amber-600 text-sm">à</span>
+                      <input type="time" value={lunchBreak.end} onChange={e => setLunchBreak({ ...lunchBreak, end: e.target.value })} className="form-input text-sm rounded-md border-amber-200 w-full bg-white text-amber-900" required />
+                    </div>
+                  </div>
+
+                  <div className="bg-slate-50 p-4 rounded-lg border border-slate-100">
+                    <div className="flex justify-between items-center mb-3">
+                      <h4 className="text-sm font-medium text-slate-700">Pauses & Récréations</h4>
+                      <button type="button" onClick={addRecess} className="text-xs text-blue-600 hover:text-blue-700 font-medium">+ Ajouter</button>
+                    </div>
+                    <div className="space-y-2">
+                      {recesses.map(r => (
+                        <div key={r.id} className="flex items-center gap-2 bg-white p-2 rounded border border-slate-200 shadow-sm">
+                          <input type="text" value={r.name} onChange={e => updateRecess(r.id, "name", e.target.value)} placeholder="Nom" className="form-input text-xs rounded border-slate-300 flex-1" />
+                          <input type="time" value={r.start} onChange={e => updateRecess(r.id, "start", e.target.value)} className="form-input text-xs rounded border-slate-300 w-24" />
+                          <span className="text-slate-400 text-xs">à</span>
+                          <input type="time" value={r.end} onChange={e => updateRecess(r.id, "end", e.target.value)} className="form-input text-xs rounded border-slate-300 w-24" />
+                          <button type="button" onClick={() => removeRecess(r.id)} className="text-slate-400 hover:text-red-500"><Trash2 className="w-3.5 h-3.5" /></button>
+                        </div>
+                      ))}
+                    </div>
                   </div>
                 </div>
+
               </div>
-              <div className="pt-2">
-                <button type="submit" className="bg-blue-600 text-white px-4 py-2 rounded-md font-medium text-sm hover:bg-blue-700 shadow-sm transition-colors">
-                  Enregistrer les horaires
+              <div className="pt-2 border-t border-slate-100">
+                <button type="submit" className="bg-blue-600 text-white px-5 py-2.5 rounded-lg font-medium text-sm hover:bg-blue-700 shadow-sm transition-colors w-full sm:w-auto">
+                  Enregistrer les paramètres de l'établissement
                 </button>
               </div>
             </form>

@@ -1,0 +1,386 @@
+import React, { useState } from "react";
+import { useStore } from "../store/useStore";
+import { db } from "../lib/firebase";
+import { collection, addDoc, deleteDoc, doc } from "firebase/firestore";
+import { Plus, Trash2, Activity as ActivityIcon, CalendarDays, Wand2 } from "lucide-react";
+
+export default function Activities() {
+  const { activities, absences, classes, facilities, courses, scheduledActivities, settings } = useStore();
+
+  const [newActivityName, setNewActivityName] = useState("");
+  const [newActivityDuration, setNewActivityDuration] = useState<number>(7);
+  const [newActivityFacility, setNewActivityFacility] = useState("");
+  const [newActivityClasses, setNewActivityClasses] = useState<string[]>([]);
+
+  const [selClassId, setSelClassId] = useState("");
+  const [absReason, setAbsReason] = useState("");
+  const [absStart, setAbsStart] = useState<number>(1);
+  const [absEnd, setAbsEnd] = useState<number>(1);
+
+  const [optimizing, setOptimizing] = useState(false);
+
+  const toggleClass = (classId: string) => {
+    setNewActivityClasses(prev => 
+      prev.includes(classId) ? prev.filter(id => id !== classId) : [...prev, classId]
+    );
+  };
+
+  const addActivity = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!newActivityName || !newActivityFacility || newActivityClasses.length === 0) {
+      alert("Veuillez remplir tous les champs (nom, installation, et au moins une classe).");
+      return;
+    }
+    await addDoc(collection(db, "activities"), {
+      name: newActivityName,
+      durationWeeks: newActivityDuration,
+      facilityId: newActivityFacility,
+      classIds: newActivityClasses,
+      createdAt: new Date()
+    });
+    setNewActivityName("");
+    setNewActivityClasses([]);
+  };
+
+  const deleteActivity = async (id: string) => {
+    if (confirm("Supprimer cette activité ?")) {
+      await deleteDoc(doc(db, "activities", id));
+    }
+  };
+
+  const addAbsence = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!selClassId || !absReason) return;
+    await addDoc(collection(db, "absences"), {
+      classId: selClassId,
+      reason: absReason,
+      startWeek: absStart,
+      endWeek: absEnd,
+      createdAt: new Date()
+    });
+    setAbsReason("");
+  };
+
+  const generateSchedule = async () => {
+    setOptimizing(true);
+    try {
+      for (const sa of scheduledActivities) {
+        await deleteDoc(doc(db, "scheduledActivities", sa.id));
+      }
+
+      const totalWks = settings?.schoolYearWeeks || 36;
+      const isHoliday = (wk: number) => settings?.holidays?.some(h => wk >= h.startWeek && wk <= h.endWeek) || false;
+      const timeToMin = (t: string) => {
+        const [h, m] = t.split(":").map(Number);
+        return h * 60 + m;
+      };
+
+      const checkOverlap = (c1Id: string, c2Id: string) => {
+        const cs1 = courses.filter(c => c.classId === c1Id);
+        const cs2 = courses.filter(c => c.classId === c2Id);
+        for(const c1 of cs1) {
+          for(const c2 of cs2) {
+            if (c1.dayOfWeek === c2.dayOfWeek) {
+              const start1 = timeToMin(c1.startTime);
+              const end1 = timeToMin(c1.endTime);
+              const start2 = timeToMin(c2.startTime);
+              const end2 = timeToMin(c2.endTime);
+              if (start1 < end2 && end1 > start2) return true;
+            }
+          }
+        }
+        return false;
+      };
+
+      const allocations: Record<string, Record<number, string[]>> = {};
+      const toPlace = [];
+      for (const a of activities) {
+        for (const cid of a.classIds) {
+          toPlace.push({ activity: a, classId: cid });
+        }
+      }
+      
+      toPlace.sort((x, y) => y.activity.durationWeeks - x.activity.durationWeeks);
+      const toSave = [];
+
+      for (const item of toPlace) {
+        const { activity, classId } = item;
+        const dur = activity.durationWeeks;
+        const facId = activity.facilityId;
+        
+        let bestStart = 1;
+        let bestEnd = dur;
+        let placed = false;
+
+        for (let w = 1; w <= totalWks; w++) {
+          if (isHoliday(w)) continue;
+
+          let canPlace = true;
+          let teachingWeeks = 0;
+          let currWeek = w;
+
+          while (teachingWeeks < dur && currWeek <= totalWks) {
+            if (isHoliday(currWeek)) {
+              currWeek++;
+              continue;
+            }
+
+            const inFac = allocations[facId]?.[currWeek] || [];
+            if (inFac.some(otherC => checkOverlap(classId, otherC))) {
+               canPlace = false;
+               break;
+            }
+            const isBusyElsewhere = Object.values(allocations).some(facWg => facWg[currWeek]?.includes(classId));
+            if (isBusyElsewhere) {
+               canPlace = false;
+               break;
+            }
+            
+            teachingWeeks++;
+            if (teachingWeeks < dur) currWeek++;
+          }
+
+          if (canPlace && teachingWeeks === dur) {
+            bestStart = w;
+            bestEnd = currWeek;
+            placed = true;
+            break;
+          }
+        }
+
+        if (placed) {
+          let tWk = 0;
+          let cw = bestStart;
+          while (tWk < dur && cw <= bestEnd) {
+             if (!isHoliday(cw)) {
+               if (!allocations[facId]) allocations[facId] = {};
+               if (!allocations[facId][cw]) allocations[facId][cw] = [];
+               allocations[facId][cw].push(classId);
+               tWk++;
+             }
+             cw++;
+          }
+          toSave.push({ activityId: activity.id, classId, startWeek: bestStart, endWeek: bestEnd });
+        }
+      }
+
+      for (const sa of toSave) {
+        await addDoc(collection(db, "scheduledActivities"), sa);
+      }
+    } catch (err) {
+      console.error(err);
+      alert("Erreur lors de la génération.");
+    } finally {
+      setOptimizing(false);
+    }
+  };
+
+  return (
+    <div className="p-8 max-w-5xl mx-auto space-y-12">
+      <div>
+        <h2 className="text-2xl font-bold text-slate-800 tracking-tight">Activités & Absences</h2>
+        <p className="text-slate-500 text-sm mt-1">Définissez les activités, temps de cycle, installations pour la répartition automatique.</p>
+      </div>
+
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+        
+        {/* Activities */}
+        <section className="bg-white p-6 rounded-xl border border-slate-200 shadow-sm">
+          <h3 className="text-sm font-bold text-slate-500 uppercase mb-4 inline-flex items-center gap-2">
+            <ActivityIcon className="w-4 h-4" /> Activités & Cycles
+          </h3>
+          <ul className="space-y-2 mb-6 max-h-60 overflow-y-auto">
+            {activities.map(a => {
+              const fac = facilities.find(f => f.id === a.facilityId);
+              const clsNames = a.classIds.map(id => classes.find(c => c.id === id)?.name).filter(Boolean).join(", ");
+              return (
+                <li key={a.id} className="flex items-center justify-between p-2 bg-slate-50 rounded border border-slate-200 group">
+                  <div className="pr-4">
+                    <span className="text-sm font-medium">{a.name}</span> <span className="text-xs text-slate-400">({a.durationWeeks} sem.)</span>
+                    <div className="text-[10px] text-slate-500 mt-1">
+                      <span className="font-semibold text-slate-600">Lieu:</span> {fac?.name || '?'} <br/>
+                      <span className="font-semibold text-slate-600">Classes:</span> <span className="text-slate-400">{clsNames || 'Aucune'}</span>
+                    </div>
+                  </div>
+                  <button onClick={() => deleteActivity(a.id)} className="text-slate-400 hover:text-red-500 opacity-0 group-hover:opacity-100 transition-opacity">
+                    <Trash2 className="w-4 h-4" />
+                  </button>
+                </li>
+              );
+            })}
+            {activities.length === 0 && <p className="text-sm text-slate-400 italic">Aucune activité définie.</p>}
+          </ul>
+
+          <form onSubmit={addActivity} className="space-y-4 pt-4 border-t border-slate-100">
+            <h4 className="text-xs font-semibold text-slate-600 uppercase">Nouvelle Activité</h4>
+            <input value={newActivityName} onChange={e=>setNewActivityName(e.target.value)} placeholder="Nom de l'activité (ex: Basket)" className="form-input w-full text-sm rounded-md border-slate-300" required />
+            
+            <div className="flex items-center gap-2">
+              <label className="text-xs font-medium text-slate-600 shrink-0 w-24">Durée (sem.)</label>
+              <input type="number" min="1" max="52" value={newActivityDuration} onChange={e=>setNewActivityDuration(parseInt(e.target.value))} className="form-input flex-1 text-sm rounded-md border-slate-300" required />
+            </div>
+
+            <div className="flex items-center gap-2">
+              <label className="text-xs font-medium text-slate-600 shrink-0 w-24">Installation</label>
+              <select value={newActivityFacility} onChange={e=>setNewActivityFacility(e.target.value)} className="form-select flex-1 text-sm rounded-md border-slate-300 bg-white" required>
+                <option value="">-- Choisir --</option>
+                {facilities.map(f => <option key={f.id} value={f.id}>{f.name}</option>)}
+              </select>
+            </div>
+
+            <div className="space-y-2">
+              <label className="text-xs font-medium text-slate-600">Classes concernées</label>
+              <div className="flex gap-2 flex-wrap max-h-32 overflow-y-auto p-2 border border-slate-200 rounded-md bg-slate-50">
+                {classes.map(c => (
+                  <label key={c.id} className="flex items-center gap-1.5 text-xs bg-white border border-slate-200 px-2 py-1 rounded cursor-pointer hover:bg-slate-50">
+                    <input type="checkbox" checked={newActivityClasses.includes(c.id)} onChange={() => toggleClass(c.id)} className="rounded text-blue-600 focus:ring-blue-500" />
+                    <span>{c.name}</span>
+                  </label>
+                ))}
+                {classes.length === 0 && <span className="text-[10px] text-slate-400">Aucune classe disponible</span>}
+              </div>
+            </div>
+
+            <button type="submit" className="w-full bg-slate-800 text-white font-medium py-2 rounded-md text-sm hover:bg-slate-900 flex justify-center items-center gap-2 shadow-sm">
+              <Plus className="w-4 h-4" /> Ajouter l'activité
+            </button>
+          </form>
+        </section>
+
+        {/* Absences */}
+        <section className="bg-white p-6 rounded-xl border border-slate-200 shadow-sm">
+          <h3 className="text-sm font-bold text-slate-500 uppercase mb-4 inline-flex items-center gap-2">
+            <CalendarDays className="w-4 h-4" /> Classes en Stage / Absences
+          </h3>
+          <ul className="space-y-2 mb-6 max-h-60 overflow-y-auto">
+            {absences.map(a => {
+              const cls = classes.find(c => c.id === a.classId);
+              return (
+                <li key={a.id} className="flex items-center justify-between p-2 bg-blue-50/50 rounded border border-blue-100 group">
+                  <div className="flex items-center gap-3">
+                    <div className="w-2 h-2 rounded-full bg-blue-400"></div>
+                    <div>
+                      <span className="text-sm font-medium">{cls?.name || 'Classe inconnue'} <span className="font-normal text-slate-500">— {a.reason}</span></span>
+                      <div className="text-[10px] text-slate-400">Sem. {a.startWeek}-{a.endWeek}</div>
+                    </div>
+                  </div>
+                  <button onClick={() => deleteDoc(doc(db, "absences", a.id))} className="text-slate-400 hover:text-red-500 opacity-0 group-hover:opacity-100 transition-opacity">
+                    <Trash2 className="w-4 h-4" />
+                  </button>
+                </li>
+              );
+            })}
+            {absences.length === 0 && (
+              <div className="flex items-center gap-2 p-2 opacity-50">
+                <div className="w-2 h-2 rounded-full bg-slate-300"></div>
+                <span className="text-sm flex-1 italic text-slate-500">Ajouter une classe...</span>
+              </div>
+            )}
+          </ul>
+
+          <form onSubmit={addAbsence} className="space-y-3 pt-4 border-t border-slate-100">
+            <h4 className="text-xs font-semibold text-slate-600 uppercase">Nouvelle absence</h4>
+            <select value={selClassId} onChange={e=>setSelClassId(e.target.value)} className="form-select w-full text-sm rounded-md border-slate-300 bg-white" required>
+              <option value="">Sélectionner une classe</option>
+              {classes.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
+            </select>
+            <input value={absReason} onChange={e=>setAbsReason(e.target.value)} placeholder="Motif (ex: Stage)" className="form-input w-full text-sm rounded-md border-slate-300" required />
+            <div className="flex items-center gap-2">
+              <input type="number" min="1" max="52" value={absStart} onChange={e=>setAbsStart(parseInt(e.target.value))} className="form-input flex-1 text-sm rounded-md border-slate-300" required />
+              <span className="text-sm text-slate-400">à</span>
+              <input type="number" min="1" max="52" value={absEnd} onChange={e=>setAbsEnd(parseInt(e.target.value))} className="form-input flex-1 text-sm rounded-md border-slate-300" required />
+            </div>
+            <button type="submit" className="w-full bg-slate-800 text-white font-medium py-2 rounded-md text-sm hover:bg-slate-900 flex justify-center items-center gap-2 shadow-sm">
+              <Plus className="w-4 h-4" /> Planifier
+            </button>
+          </form>
+        </section>
+      </div>
+
+      <div className="bg-white p-6 rounded-xl border border-slate-200 shadow-sm flex flex-col pt-6 mt-8">
+        <div className="flex items-center justify-between mb-6">
+          <div>
+            <h3 className="font-bold text-slate-800 text-lg tracking-tight">Planning Annuel Généré</h3>
+            <p className="text-slate-500 text-sm mt-1">La répartition optimise l'occupation des installations selon l'emploi du temps des classes (sans chevauchement de créneaux).</p>
+          </div>
+          <button 
+            onClick={generateSchedule} 
+            disabled={optimizing || activities.length === 0}
+            className="bg-blue-600 hover:bg-blue-700 disabled:opacity-50 text-white px-5 py-2.5 rounded-lg font-medium text-sm flex items-center gap-2 shadow-sm transition-colors"
+          >
+            <Wand2 className="w-4 h-4" />
+            {optimizing ? "Génération en cours..." : "Générer la répartition"}
+          </button>
+        </div>
+
+        {scheduledActivities.length > 0 ? (
+          <div className="overflow-x-auto pb-4">
+            <div className="min-w-[800px]">
+              <div className="flex border-b border-slate-200 pb-2 mb-2">
+                <div className="w-32 shrink-0 font-semibold text-xs text-slate-500 uppercase">Classe</div>
+                <div className="flex-1 flex relative">
+                  {Array.from({ length: settings?.schoolYearWeeks || 36 }).map((_, i) => {
+                    const isHol = settings?.holidays?.some(h => i+1 >= h.startWeek && i+1 <= h.endWeek);
+                    return (
+                      <div key={i} className={`flex-1 text-center text-[10px] ${isHol ? 'text-amber-500 font-bold bg-amber-50' : 'text-slate-400'} border-l border-slate-100 first:border-0`}>{i+1}</div>
+                    );
+                  })}
+                </div>
+              </div>
+              
+              <div className="space-y-3">
+                {classes.map(c => {
+                  const mySAs = scheduledActivities.filter(sa => sa.classId === c.id);
+                  if (mySAs.length === 0) return null;
+                  
+                  return (
+                    <div key={c.id} className="flex items-center min-h-[32px]">
+                      <div className="w-32 shrink-0 text-sm font-medium text-slate-800 flex items-center gap-2">
+                        <div className="w-2 h-2 rounded-full" style={{ backgroundColor: c.color }} />
+                        {c.name}
+                      </div>
+                      <div className="flex-1 flex relative h-8 bg-slate-50 rounded-md border border-slate-100 overflow-hidden">
+                        {/* Draw Holidays Background */}
+                        {settings?.holidays?.map(h => {
+                            const maxW = settings?.schoolYearWeeks || 36;
+                            const left = Math.max(0, (h.startWeek - 1) / maxW * 100);
+                            const width = Math.min(100 - left, (h.endWeek - h.startWeek + 1) / maxW * 100);
+                            return <div key={h.id} className="absolute top-0 bottom-0 bg-amber-100/50 mix-blend-multiply" style={{ left: `${left}%`, width: `${width}%` }} title={h.name} />
+                        })}
+
+                        {mySAs.map(sa => {
+                          const act = activities.find(a => a.id === sa.activityId);
+                          const fac = facilities.find(f => f.id === act?.facilityId);
+                          const maxW = settings?.schoolYearWeeks || 36;
+                          const left = Math.max(0, (sa.startWeek - 1) / maxW * 100);
+                          const width = Math.min(100 - left, (sa.endWeek - sa.startWeek + 1) / maxW * 100);
+                          return (
+                            <div 
+                              key={sa.id} 
+                              className="absolute top-0 bottom-0 m-0.5 rounded px-2 flex flex-col justify-center overflow-hidden shadow-sm shadow-slate-200"
+                              style={{ left: `${left}%`, width: `${width}%`, backgroundColor: fac?.color || '#e2e8f0' }}
+                              title={`${act?.name} (${fac?.name}) - Sem. ${sa.startWeek} à ${sa.endWeek}`}
+                            >
+                              <div className="text-[10px] font-bold text-white truncate drop-shadow-md">{act?.name}</div>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          </div>
+        ) : (
+          <div className="py-12 border-2 border-dashed border-slate-200 rounded-lg flex flex-col items-center justify-center text-slate-400">
+            <CalendarDays className="w-10 h-10 mb-3 opacity-20" />
+            <p className="text-sm font-medium">Aucune répartition générée</p>
+            <p className="text-xs mt-1">Ajoutez des activités puis cliquez sur le bouton Générer.</p>
+          </div>
+        )}
+      </div>
+
+    </div>
+  );
+}

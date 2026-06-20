@@ -3,7 +3,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import { useEffect, useState } from "react";
+import React, { useEffect, useState } from "react";
 import { BrowserRouter, Routes, Route, Navigate, Link, useLocation } from "react-router-dom";
 import { Calendar, Map, CheckSquare, Settings as SettingsIcon, LogOut } from "lucide-react";
 import { clsx, type ClassValue } from "clsx";
@@ -12,8 +12,7 @@ import { twMerge } from "tailwind-merge";
 // Pages placeholder
 import Layout from "./components/Layout";
 import Schedule from "./pages/Schedule";
-import Facilities from "./pages/Facilities";
-import Cycles from "./pages/Cycles";
+import Activities from "./pages/Activities";
 import Settings from "./pages/Settings";
 
 export function cn(...inputs: ClassValue[]) {
@@ -80,8 +79,7 @@ export default function App() {
         <Route path="/" element={<Layout onLogout={handleLogout} />}>
           <Route index element={<Navigate to="/schedule" replace />} />
           <Route path="schedule" element={<Schedule />} />
-          <Route path="facilities" element={<Facilities />} />
-          <Route path="cycles" element={<Cycles />} />
+          <Route path="activities" element={<Activities />} />
           <Route path="settings" element={<Settings />} />
         </Route>
       </Routes>

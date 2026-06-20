@@ -1,3 +1,11 @@
+export interface ScheduledActivity {
+  id: string;
+  activityId: string;
+  classId: string;
+  startWeek: number;
+  endWeek: number;
+}
+
 export interface Teacher {
   id: string;
   name: string;
@@ -16,11 +24,12 @@ export interface Facility {
   color: string;
 }
 
-export interface Cycle {
+export interface Activity {
   id: string;
   name: string;
-  startWeek: number;
-  endWeek: number;
+  durationWeeks: number;
+  facilityId: string;
+  classIds: string[];
 }
 
 export interface Absence {
@@ -45,7 +54,9 @@ export interface Course {
 
 export interface Settings {
   id?: string;
-  recessTimes: { start: string; end: string }[];
+  recessTimes: { id: string; start: string; end: string; name: string }[];
   lunchBreak: { start: string; end: string };
+  schoolYearWeeks: number;
+  holidays: { id: string; startWeek: number; endWeek: number; name: string }[];
   bellTimes: string[];
 }
