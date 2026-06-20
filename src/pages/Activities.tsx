@@ -126,7 +126,11 @@ export default function Activities() {
             }
 
             const inFac = allocations[facId]?.[currWeek] || [];
-            if (inFac.some(otherC => checkOverlap(classId, otherC))) {
+            const overlappingClasses = inFac.filter(otherC => checkOverlap(classId, otherC));
+            const facility = facilities.find(f => f.id === facId);
+            const maxCapacity = facility?.capacity || 1;
+
+            if (overlappingClasses.length >= maxCapacity) {
                canPlace = false;
                break;
             }

@@ -2,11 +2,11 @@ import React, { useState } from "react";
 import { useStore } from "../store/useStore";
 import { db } from "../lib/firebase";
 import { collection, addDoc, deleteDoc, doc, updateDoc, setDoc } from "firebase/firestore";
-import { Trash2, Plus, GripVertical } from "lucide-react";
+import { Trash2, Plus, GripVertical, Download, Upload } from "lucide-react";
 import { Teacher, ClassGroup, Facility } from "../types";
 
 export default function Settings() {
-  const { teachers, classes, facilities, settings } = useStore();
+  const { teachers, classes, facilities, settings, courses } = useStore();
 
   const [newTeacherName, setNewTeacherName] = useState("");
   const [newTeacherColor, setNewTeacherColor] = useState("#4f46e5");
@@ -49,6 +49,7 @@ export default function Settings() {
   const [lunchBreak, setLunchBreak] = useState(settings?.lunchBreak || { start: "12:30", end: "14:00" });
   const [schoolYearWeeks, setSchoolYearWeeks] = useState(settings?.schoolYearWeeks || 36);
   const [holidays, setHolidays] = useState([...(settings?.holidays || [])]);
+  const [bellTimes, setBellTimes] = useState(settings?.bellTimes || ["08:15", "09:10", "10:05", "10:20", "11:15", "11:55", "12:20", "12:45", "13:15", "13:45", "14:45", "15:15", "15:45", "16:50"]);
 
   React.useEffect(() => {
     if (settings) {
@@ -56,6 +57,7 @@ export default function Settings() {
       if (settings.lunchBreak) setLunchBreak(settings.lunchBreak);
       if (settings.schoolYearWeeks) setSchoolYearWeeks(settings.schoolYearWeeks);
       if (settings.holidays) setHolidays(settings.holidays);
+      if (settings.bellTimes) setBellTimes(settings.bellTimes);
     }
   }, [settings]);
 
@@ -85,12 +87,13 @@ export default function Settings() {
 
   const saveSettings = async (e: React.FormEvent) => {
     e.preventDefault();
+    const sortedBells = [...bellTimes].sort((a, b) => a.localeCompare(b));
     const updated = {
       recessTimes: recesses,
       lunchBreak,
       schoolYearWeeks,
       holidays,
-      bellTimes: settings?.bellTimes || ["08:00"],
+      bellTimes: sortedBells,
       updatedAt: new Date()
     };
     
@@ -100,6 +103,57 @@ export default function Settings() {
       await setDoc(doc(collection(db, "settings"), "main"), updated);
     }
     alert("Paramètres enregistrés");
+  };
+
+  const exportData = () => {
+    const data = { teachers, classes, facilities, courses, settings };
+    const blob = new Blob([JSON.stringify(data, null, 2)], { type: "application/json" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `eps_backup_${new Date().toISOString().split('T')[0]}.json`;
+    a.click();
+  };
+
+  const importData = async (e: React.ChangeEvent<HTMLInputElement>) => {
+     const file = e.target.files?.[0];
+     if (!file) return;
+     const reader = new FileReader();
+     reader.onload = async (event) => {
+         try {
+             const data = JSON.parse(event.target?.result as string);
+             if (!confirm("Attention, l'import effacera toutes les données actuelles. Continuer ?")) return;
+             
+             // Very simple "wipe and insert":
+             for (const c of courses) await deleteDoc(doc(db, "courses", c.id));
+             for (const t of teachers) await deleteDoc(doc(db, "teachers", t.id));
+             for (const cl of classes) await deleteDoc(doc(db, "classes", cl.id));
+             for (const f of facilities) await deleteDoc(doc(db, "facilities", f.id));
+
+             const newSet = {...data.settings};
+             delete newSet.id;
+             if (settings?.id) {
+                 await updateDoc(doc(db, "settings", settings.id), newSet);
+             } else if (data.settings) {
+                 await setDoc(doc(collection(db, "settings"), "main"), newSet);
+             }
+
+             const clean = (obj: any) => { const o = {...obj}; delete o.id; return o; };
+
+             // Re-insert with same IDs to preserve relations
+             for (const t of (data.teachers||[])) await setDoc(doc(db, "teachers", t.id), clean(t));
+             for (const cl of (data.classes||[])) await setDoc(doc(db, "classes", cl.id), clean(cl));
+             for (const f of (data.facilities||[])) await setDoc(doc(db, "facilities", f.id), clean(f));
+             for (const c of (data.courses||[])) await setDoc(doc(db, "courses", c.id), clean(c));
+
+             alert("Import réussi. La page va se recharger.");
+             window.location.reload();
+         } catch (err) {
+             console.error(err);
+             alert("Erreur lors de l'import");
+         }
+     };
+     reader.readAsText(file);
   };
 
   return (
@@ -175,6 +229,29 @@ export default function Settings() {
                       ))}
                     </div>
                   </div>
+                  <div className="bg-slate-50 p-4 rounded-lg border border-slate-100">
+                    <div className="flex justify-between items-center mb-3">
+                      <h4 className="text-sm font-medium text-slate-700">Horaires / Sonneries</h4>
+                    </div>
+                    <div className="space-y-3">
+                      <div className="flex flex-wrap gap-2">
+                        {bellTimes.map((b, i) => (
+                          <div key={i} className="flex items-center gap-1 bg-white px-3 py-1.5 rounded-full border border-slate-200 text-sm font-mono text-slate-700 shadow-sm">
+                            <span>{b}</span>
+                            <button type="button" onClick={() => setBellTimes(bellTimes.filter((_, idx) => idx !== i))} className="text-slate-400 hover:text-red-500 ml-1">
+                              <Trash2 className="w-3.5 h-3.5" />
+                            </button>
+                          </div>
+                        ))}
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <input type="time" id="newBellTime" className="form-input text-sm rounded-md border-slate-300 w-24 bg-white" />
+                        <button type="button" onClick={() => { const v = (document.getElementById('newBellTime') as HTMLInputElement).value; if (v && !bellTimes.includes(v)) { setBellTimes([...bellTimes, v]); (document.getElementById('newBellTime') as HTMLInputElement).value = ''; } }} className="text-xs border border-blue-200 bg-blue-50 text-blue-700 hover:bg-blue-100 px-3 py-1.5 rounded-md font-medium">+ Ajouter</button>
+                      </div>
+                      <p className="text-[10px] text-slate-500 italic mt-1">Utilisés pour construire la grille de l'emploi du temps.</p>
+                    </div>
+                  </div>
+
                 </div>
 
               </div>
@@ -193,11 +270,12 @@ export default function Settings() {
           <ul className="space-y-2 mb-4 max-h-60 overflow-y-auto">
             {teachers.map(t => (
               <li key={t.id} className="flex items-center justify-between p-2 hover:bg-slate-50 rounded-lg group border border-transparent hover:border-slate-100 transition-colors">
-                <div className="flex items-center gap-3">
+                <div className="flex items-center gap-3 flex-1">
                   <div className="w-2 h-2 rounded-full" style={{ backgroundColor: t.color }} />
-                  <span className="text-sm font-medium text-slate-800">{t.name}</span>
+                  <span className="text-sm font-medium text-slate-800 flex-1">{t.name}</span>
+                  <input type="number" value={t.targetHours || 20} onChange={(e) => updateDoc(doc(db, "teachers", t.id), { targetHours: parseInt(e.target.value) || 20 })} className="w-16 form-input text-xs rounded border-slate-300 px-1 py-0.5" title="Heures cibles" placeholder="20h" />
                 </div>
-                <button onClick={() => deleteItem("teachers", t.id)} className="text-slate-400 hover:text-red-500 opacity-0 group-hover:opacity-100 transition-opacity">
+                <button onClick={() => deleteItem("teachers", t.id)} className="text-slate-400 hover:text-red-500 opacity-0 group-hover:opacity-100 transition-opacity ml-2">
                   <Trash2 className="w-4 h-4" />
                 </button>
               </li>
@@ -242,11 +320,12 @@ export default function Settings() {
             <ul className="space-y-2 max-h-48 overflow-y-auto w-full pr-4">
               {facilities.map(f => (
                 <li key={f.id} className="flex items-center justify-between p-2 hover:bg-slate-50 rounded-lg group border border-transparent hover:border-slate-100 transition-colors">
-                  <div className="flex items-center gap-3">
+                  <div className="flex items-center gap-3 flex-1">
                     <div className="w-2 h-2 rounded-full" style={{ backgroundColor: f.color }} />
-                    <span className="text-sm font-medium text-slate-800">{f.name}</span>
+                    <span className="text-sm font-medium text-slate-800 flex-1">{f.name}</span>
+                    <input type="number" min="1" max="10" value={f.capacity || 1} onChange={(e) => updateDoc(doc(db, "facilities", f.id), { capacity: parseInt(e.target.value) || 1 })} className="w-14 form-input text-xs rounded border-slate-300 px-1 py-0.5" title="Capacité (Nb. de classes)" placeholder="1" />
                   </div>
-                  <button onClick={() => deleteItem("facilities", f.id)} className="text-slate-400 hover:text-red-500 opacity-0 group-hover:opacity-100 transition-opacity">
+                  <button onClick={() => deleteItem("facilities", f.id)} className="text-slate-400 hover:text-red-500 opacity-0 group-hover:opacity-100 transition-opacity ml-2">
                     <Trash2 className="w-4 h-4" />
                   </button>
                 </li>
@@ -261,6 +340,25 @@ export default function Settings() {
                 <button type="submit" className="bg-slate-800 text-white px-3 py-2 rounded-md hover:bg-slate-900 transition-colors shadow-sm"><Plus className="w-4 h-4" /></button>
               </div>
             </form>
+          </div>
+        </section>
+
+        {/* Data Management */}
+        <section className="bg-white p-6 rounded-xl border border-slate-200 shadow-sm md:col-span-2 flex flex-col sm:flex-row items-center justify-between gap-6">
+          <div>
+            <h3 className="text-sm font-bold text-slate-800 uppercase mb-1">Sauvegarde & Importation</h3>
+            <p className="text-xs text-slate-500 max-w-sm">Sauvegardez l'ensemble de votre base de données (professeurs, classes, emplois du temps) dans un fichier au format .json local.</p>
+          </div>
+          <div className="flex items-center gap-3 w-full sm:w-auto">
+            <button onClick={exportData} className="flex-1 sm:flex-none flex items-center justify-center gap-2 bg-white border border-slate-300 text-slate-700 px-4 py-2.5 rounded-lg text-sm font-medium hover:bg-slate-50 transition-colors shadow-sm">
+                <Download className="w-4 h-4" />
+                Sauvegarder
+            </button>
+            <label className="flex-1 sm:flex-none flex items-center justify-center gap-2 bg-slate-800 text-white px-4 py-2.5 rounded-lg text-sm font-medium hover:bg-slate-900 transition-colors shadow-sm cursor-pointer">
+                <Upload className="w-4 h-4" />
+                Importer
+                <input type="file" accept=".json" onChange={importData} className="hidden" />
+            </label>
           </div>
         </section>
       </div>

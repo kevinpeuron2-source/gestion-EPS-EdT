@@ -6,22 +6,35 @@ export interface ScheduledActivity {
   endWeek: number;
 }
 
+export interface ClassRequirement {
+  id: string;
+  durationMinutes: number;
+  count: number;
+  weekType: 'ALL' | 'A' | 'B';
+}
+
 export interface Teacher {
   id: string;
   name: string;
   color: string;
+  targetHours?: number;
+  unavailabilities?: { id: string; dayOfWeek: string; startTime: string; endTime: string; reason?: string }[];
 }
 
 export interface ClassGroup {
   id: string;
   name: string;
   color: string;
+  defaultTeacherId?: string;
+  preferredFacilityId?: string;
+  requirements?: ClassRequirement[];
 }
 
 export interface Facility {
   id: string;
   name: string;
   color: string;
+  capacity?: number;
 }
 
 export interface Activity {
@@ -43,13 +56,17 @@ export interface Absence {
 export interface Course {
   id: string;
   teacherId: string;
-  classId: string;
+  coTeacherIds?: string[];
+  classId: string; // Will be empty or "UNAVAILABLE" if it's an unavailability
   facilityId?: string;
   dayOfWeek: string;
   startTime: string; // e.g. "08:00"
   endTime: string;   // e.g. "09:00"
+  weekType?: 'ALL' | 'A' | 'B';
   cycleId?: string;
   locked?: boolean;
+  isUnavailability?: boolean;
+  reason?: string;
 }
 
 export interface Settings {

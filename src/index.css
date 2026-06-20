@@ -11,3 +11,36 @@ body {
   background-color: #f1f5f9; /* Tailwind slate-100 */
   color: #1e293b; /* Tailwind slate-800 */
 }
+
+@media print {
+  /* Reset Body */
+  body {
+    background-color: white !important;
+    overflow: visible !important;
+    display: block !important;
+  }
+
+  /* Hide navigation panels and toolbars */
+  nav, header, [data-no-print="true"], .no-print {
+    display: none !important;
+  }
+
+  /* Remove shadows, borders, exact styling */
+  * {
+    box-shadow: none !important;
+  }
+
+  /* Expand schedule */
+  main, .schedule-container {
+    padding: 0 !important;
+    margin: 0 !important;
+    overflow: visible !important;
+    height: auto !important;
+  }
+
+  /* Keep colors when printing */
+  * {
+    -webkit-print-color-adjust: exact !important;
+    print-color-adjust: exact !important;
+  }
+}
