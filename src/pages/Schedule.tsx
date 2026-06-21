@@ -313,11 +313,27 @@ export default function Schedule() {
       <div className="flex-1 overflow-auto bg-slate-100 p-6 flex gap-6">
         {/* Time axis */}
         <div className="w-12 shrink-0 relative mt-10">
-          {(settings?.bellTimes || []).map((time, i) => {
+          {/* Draw standard hour markers */}
+          {Array.from({ length: TIME_END - TIME_START + 1 }).map((_, i) => {
+            const hour = TIME_START + i;
+            if (hour === TIME_END) return null; // Don't draw the very last one at the exact bottom boundary
+            const timeStr = `${hour.toString().padStart(2, '0')}:00`;
+            const isBellTime = settings?.bellTimes?.includes(timeStr);
+            if (isBellTime) return null; // Will be drawn by bellTimes
+            
+            return (
+              <div key={`h-${i}`} className="absolute w-full text-right pr-2 text-[10px] text-slate-300 font-medium font-mono" style={{ top: i * 60 * PX_PER_MINUTE - 6 }}>
+                {timeStr}
+              </div>
+            );
+          })}
+          
+          {/* Draw bell times prominently */}
+          {Array.from(new Set([...(settings?.bellTimes || []), "17:00", "18:00", "18:30"])).sort((a, b) => a.localeCompare(b)).map((time, i) => {
             const t = timeToMinutes(time) - TIME_START * 60;
             if (t < 0) return null;
             return (
-              <div key={i} className="absolute w-full text-right pr-2 text-[10px] text-slate-500 font-medium font-mono" style={{ top: t * PX_PER_MINUTE - 6 }}>
+              <div key={i} className="absolute w-full text-right pr-2 text-[10px] text-slate-600 font-bold font-mono" style={{ top: t * PX_PER_MINUTE - 6 }}>
                 {time}
               </div>
             );
@@ -325,7 +341,7 @@ export default function Schedule() {
         </div>
 
         {/* Days Grid */}
-        <div className="flex flex-1 min-w-[1200px] border border-slate-200 bg-white rounded-xl overflow-hidden shadow-sm divide-x divide-slate-100">
+        <div className="flex flex-auto shrink-0 min-w-[1200px] border border-slate-200 bg-white rounded-xl overflow-hidden shadow-sm divide-x divide-slate-100">
           {DAYS.map((day, dIdx) => (
             <div key={day} className="flex-1 flex flex-col min-w-[200px]">
               <div className="h-8 border-b border-slate-200 flex items-center justify-center bg-slate-100 font-bold text-sm text-slate-700 uppercase tracking-wider">
@@ -365,11 +381,19 @@ export default function Schedule() {
                       onDragOver={(e) => { e.preventDefault(); e.dataTransfer.dropEffect = 'move'; }}
                       onDrop={(e) => handleDrop(e, day, teacher.id)}
                     >
-                      {/* Horizontal grid lines */}
-                      {(settings?.bellTimes || []).map((time, i) => {
+                      {/* Standard hourly grid lines */}
+                      {Array.from({ length: TIME_END - TIME_START + 1 }).map((_, i) => {
+                          const hour = TIME_START + i;
+                          if (hour === TIME_END) return null;
+                          return <div key={`grid-h-${i}`} className="absolute w-full border-t border-slate-200" style={{ top: i * 60 * PX_PER_MINUTE }} />
+                      })}
+
+                      {/* Bell times grid lines */}
+                      {Array.from(new Set([...(settings?.bellTimes || []), "17:00", "18:00", "18:30"])).sort((a, b) => a.localeCompare(b)).map((time, i) => {
+                         if (time.endsWith(':00')) return null; // Avoid overlapping with standard hours
                          const t = timeToMinutes(time) - TIME_START * 60;
                          if (t < 0) return null;
-                         return <div key={i} className="absolute w-full border-t border-slate-200 border-dashed" style={{ top: t * PX_PER_MINUTE }} />
+                         return <div key={i} className="absolute w-full border-t border-slate-300 border-dashed" style={{ top: t * PX_PER_MINUTE }} />
                       })}
 
                       {/* Recess & Lunch Blocks background */}
@@ -389,8 +413,7 @@ export default function Schedule() {
                       )}
 
                       {/* Clickable areas to add courses */}
-                      {(settings?.bellTimes || []).map((time, i) => {
-                        const bells = settings?.bellTimes || [];
+                      {Array.from(new Set([...(settings?.bellTimes || []), "17:00", "18:00", "18:30"])).sort((a, b) => a.localeCompare(b)).map((time, i, bells) => {
                         if (i === bells.length - 1) return null;
                         const startM = timeToMinutes(time) - TIME_START * 60;
                         const endM = timeToMinutes(bells[i+1]) - TIME_START * 60;
