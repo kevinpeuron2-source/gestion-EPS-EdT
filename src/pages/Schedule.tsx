@@ -310,9 +310,9 @@ export default function Schedule() {
         </div>
       </header>
 
-      <div className="flex-1 overflow-auto bg-slate-100 p-6 flex gap-6">
+      <div className="flex-1 overflow-auto bg-slate-100 p-6 flex gap-6 items-start">
         {/* Time axis */}
-        <div className="w-12 shrink-0 relative mt-10">
+        <div className="w-12 shrink-0 relative mt-16">
           {/* Draw standard hour markers */}
           {Array.from({ length: TIME_END - TIME_START + 1 }).map((_, i) => {
             const hour = TIME_START + i;
@@ -329,7 +329,8 @@ export default function Schedule() {
           })}
           
           {/* Draw bell times prominently */}
-          {Array.from(new Set([...(settings?.bellTimes || []), "17:00", "18:00", "18:30"])).sort((a, b) => a.localeCompare(b)).map((time, i) => {
+          {Array.from(new Set([...(settings?.bellTimes || []), "17:00", "18:00", "18:30", "19:00"].filter(Boolean))).sort((a, b) => String(a).localeCompare(String(b))).map((time, i) => {
+            if (typeof time !== 'string') return null;
             const t = timeToMinutes(time) - TIME_START * 60;
             if (t < 0) return null;
             return (
@@ -376,8 +377,8 @@ export default function Schedule() {
                     </div>
                     
                     <div 
-                      className="relative flex-1 bg-slate-50/20" 
-                      style={{ minHeight: (TIME_END - TIME_START) * 60 * PX_PER_MINUTE }}
+                      className="relative flex-1 bg-slate-50/20 shadow-inner" 
+                      style={{ height: (TIME_END - TIME_START) * 60 * PX_PER_MINUTE }}
                       onDragOver={(e) => { e.preventDefault(); e.dataTransfer.dropEffect = 'move'; }}
                       onDrop={(e) => handleDrop(e, day, teacher.id)}
                     >
@@ -389,8 +390,8 @@ export default function Schedule() {
                       })}
 
                       {/* Bell times grid lines */}
-                      {Array.from(new Set([...(settings?.bellTimes || []), "17:00", "18:00", "18:30"])).sort((a, b) => a.localeCompare(b)).map((time, i) => {
-                         if (time.endsWith(':00')) return null; // Avoid overlapping with standard hours
+                      {Array.from(new Set([...(settings?.bellTimes || []), "17:00", "18:00", "18:30", "19:00"].filter(Boolean))).sort((a, b) => String(a).localeCompare(String(b))).map((time, i) => {
+                         if (typeof time !== 'string' || time.endsWith(':00')) return null; // Avoid overlapping with standard hours
                          const t = timeToMinutes(time) - TIME_START * 60;
                          if (t < 0) return null;
                          return <div key={i} className="absolute w-full border-t border-slate-300 border-dashed" style={{ top: t * PX_PER_MINUTE }} />
@@ -413,10 +414,12 @@ export default function Schedule() {
                       )}
 
                       {/* Clickable areas to add courses */}
-                      {Array.from(new Set([...(settings?.bellTimes || []), "17:00", "18:00", "18:30"])).sort((a, b) => a.localeCompare(b)).map((time, i, bells) => {
-                        if (i === bells.length - 1) return null;
+                      {Array.from(new Set([...(settings?.bellTimes || []), "17:00", "18:00", "18:30", "19:00"].filter(Boolean))).sort((a, b) => String(a).localeCompare(String(b))).map((time, i, bells) => {
+                        if (i === bells.length - 1 || typeof time !== 'string') return null;
+                        const nextTime = bells[i+1];
+                        if (typeof nextTime !== 'string') return null;
                         const startM = timeToMinutes(time) - TIME_START * 60;
-                        const endM = timeToMinutes(bells[i+1]) - TIME_START * 60;
+                        const endM = timeToMinutes(nextTime) - TIME_START * 60;
                         const duration = endM - startM;
                         if (startM < 0 || duration <= 0) return null;
                         
@@ -424,8 +427,9 @@ export default function Schedule() {
                         <div
                           key={'click'+i}
                           onClick={() => {
+                            if (typeof time !== 'string' || typeof bells[i+1] !== 'string') return;
                             setTId(teacher.id);
-                            handleAddClick(day, time, bells[i+1]);
+                            handleAddClick(day, time, bells[i+1] as string);
                           }}
                           className="absolute w-full hover:bg-slate-100/50 cursor-crosshair transition-colors"
                           style={{ top: startM * PX_PER_MINUTE, height: duration * PX_PER_MINUTE, zIndex: 10 }}
