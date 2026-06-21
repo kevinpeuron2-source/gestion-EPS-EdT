@@ -27,6 +27,7 @@ export default function Schedule() {
   const [reason, setReason] = useState("");
 
   const [resizingCourse, setResizingCourse] = useState<{ id: string; initialY: number; initialEndMins: number } | null>(null);
+  const [draftCourse, setDraftCourse] = useState<{ day: string; teacherId: string; startMins: number; endMins: number; initialY: number } | null>(null);
   const [optimisticEnd, setOptimisticEnd] = useState<{ [id: string]: string }>({});
 
   const [history, setHistory] = useState<Course[][]>([]);
@@ -145,6 +146,44 @@ export default function Schedule() {
       window.removeEventListener('mouseup', handleMouseUp);
     };
   }, [resizingCourse, optimisticEnd, courses]);
+
+  React.useEffect(() => {
+    if (!draftCourse) return;
+
+    const handleMouseMove = (e: MouseEvent) => {
+      const deltaY = e.clientY - draftCourse.initialY;
+      const deltaMins = Math.round(deltaY / PX_PER_MINUTE);
+      
+      // Snap the end time to 15 min increments based on delta
+      const newEndMins = Math.max(draftCourse.startMins + 15, Math.ceil((draftCourse.startMins + 30 + deltaMins) / 15) * 15);
+      
+      setDraftCourse(prev => prev ? { ...prev, endMins: newEndMins } : null);
+    };
+
+    const handleMouseUp = () => {
+      if (!draftCourse) return;
+      
+      const startH = Math.floor(draftCourse.startMins / 60) + TIME_START;
+      const startM = draftCourse.startMins % 60;
+      const endH = Math.floor(draftCourse.endMins / 60) + TIME_START;
+      const endM = draftCourse.endMins % 60;
+      
+      setTId(draftCourse.teacherId);
+      handleAddClick(draftCourse.day, 
+         `${startH.toString().padStart(2, '0')}:${startM.toString().padStart(2, '0')}`,
+         `${endH.toString().padStart(2, '0')}:${endM.toString().padStart(2, '0')}`
+      );
+      
+      setDraftCourse(null);
+    };
+
+    window.addEventListener('mousemove', handleMouseMove);
+    window.addEventListener('mouseup', handleMouseUp);
+    return () => {
+      window.removeEventListener('mousemove', handleMouseMove);
+      window.removeEventListener('mouseup', handleMouseUp);
+    };
+  }, [draftCourse]);
 
   const handleAddClick = (dayOfDay: string, start: string, end: string) => {
     setAddingCourse({ day: dayOfDay, time: start });
@@ -392,16 +431,32 @@ export default function Schedule() {
                     </div>
                     
                     <div 
-                      className="relative flex-1 bg-slate-50/20 shadow-inner" 
+                      className="relative flex-1 bg-slate-50/20 shadow-inner group/col" 
                       style={{ height: (TIME_END - TIME_START) * 60 * PX_PER_MINUTE }}
                       onDragOver={(e) => { e.preventDefault(); e.dataTransfer.dropEffect = 'move'; }}
                       onDrop={(e) => handleDrop(e, day, teacher.id)}
+                      onMouseDown={(e) => {
+                         if (e.target !== e.currentTarget) return; // Only process if the user clicks directly on the background
+                         const rect = e.currentTarget.getBoundingClientRect();
+                         const y = e.clientY - rect.top;
+                         const startMins = Math.floor(y / PX_PER_MINUTE);
+                         // Snap to 15 min or 5 min? Let's snap to closest 15 mins for start
+                         const snappedStart = Math.floor(startMins / 15) * 15;
+                         
+                         setDraftCourse({
+                            day,
+                            teacherId: teacher.id,
+                            startMins: snappedStart,
+                            endMins: snappedStart + 30, // 30 min initial default length
+                            initialY: e.clientY
+                         });
+                      }}
                     >
                       {/* Standard hourly grid lines */}
                       {Array.from({ length: TIME_END - TIME_START + 1 }).map((_, i) => {
                           const hour = TIME_START + i;
                           if (hour === TIME_END) return null;
-                          return <div key={`grid-h-${i}`} className="absolute w-full border-t border-slate-200" style={{ top: i * 60 * PX_PER_MINUTE }} />
+                          return <div key={`grid-h-${i}`} className="absolute w-full border-t border-slate-200 pointer-events-none" style={{ top: i * 60 * PX_PER_MINUTE, zIndex: 5 }} />
                       })}
 
                       {/* Bell times grid lines */}
@@ -413,7 +468,7 @@ export default function Schedule() {
                          if (typeof time !== 'string' || time.endsWith(':00')) return null; // Avoid overlapping with standard hours
                          const t = timeToMinutes(time) - TIME_START * 60;
                          if (t < 0) return null;
-                         return <div key={i} className="absolute w-full border-t border-slate-300 border-dashed" style={{ top: t * PX_PER_MINUTE }} />
+                         return <div key={i} className="absolute w-full border-t border-slate-300 border-dashed pointer-events-none" style={{ top: t * PX_PER_MINUTE, zIndex: 5 }} />
                       })}
 
                       {/* Recess & Lunch Blocks background */}
@@ -432,34 +487,20 @@ export default function Schedule() {
                         })()
                       )}
 
-                      {/* Clickable areas to add courses */}
-                      {Array.from(new Set([
-                        ...(settings?.bellTimes || []), 
-                        ...Array.from({ length: 12 }).map((_, h) => `${(h + 8).toString().padStart(2, '0')}:00`),
-                        "18:30"
-                      ].filter(Boolean))).sort((a, b) => String(a).localeCompare(String(b))).map((time, i, bells) => {
-                        if (i === bells.length - 1 || typeof time !== 'string') return null;
-                        const nextTime = bells[i+1];
-                        if (typeof nextTime !== 'string') return null;
-                        const startM = timeToMinutes(time) - TIME_START * 60;
-                        const endM = timeToMinutes(nextTime) - TIME_START * 60;
-                        const duration = endM - startM;
-                        if (startM < 0 || duration <= 0) return null;
-                        
-                        return (
-                        <div
-                          key={'click'+i}
-                          onClick={() => {
-                            if (typeof time !== 'string' || typeof bells[i+1] !== 'string') return;
-                            setTId(teacher.id);
-                            handleAddClick(day, time, bells[i+1] as string);
+                      {/* Draft Course */}
+                      {draftCourse && draftCourse.day === day && draftCourse.teacherId === teacher.id && (
+                        <div 
+                          className="absolute w-full bg-blue-500/20 border-2 border-blue-500 border-dashed rounded z-30 pointer-events-none drop-shadow-sm flex items-center justify-center print:hidden"
+                          style={{
+                             top: draftCourse.startMins * PX_PER_MINUTE,
+                             height: (draftCourse.endMins - draftCourse.startMins) * PX_PER_MINUTE,
                           }}
-                          className="absolute w-full hover:bg-blue-50/60 group cursor-pointer transition-colors flex items-center justify-center border border-transparent hover:border-blue-200/60 print:hidden"
-                          style={{ top: startM * PX_PER_MINUTE, height: duration * PX_PER_MINUTE, zIndex: 10 }}
                         >
-                          <Plus className="w-5 h-5 text-blue-500 opacity-0 group-hover:opacity-100 transition-opacity drop-shadow-sm scale-75 group-hover:scale-100" />
+                           <span className="text-xs font-bold text-blue-700 bg-white/80 px-1 rounded shadow-sm">
+                             {Math.floor(draftCourse.startMins / 60) + TIME_START}:{String(draftCourse.startMins % 60).padStart(2,'0')} - {Math.floor(draftCourse.endMins / 60) + TIME_START}:{String(draftCourse.endMins % 60).padStart(2,'0')}
+                           </span>
                         </div>
-                      )})}
+                      )}
 
                       {/* Placed Courses */}
                       {courses.filter(c => c.dayOfWeek === day && (c.teacherId === teacher.id || c.coTeacherIds?.includes(teacher.id))).map(course => {
@@ -487,7 +528,7 @@ export default function Schedule() {
                                 className={`absolute rounded p-1.5 shadow-sm border border-slate-400 overflow-hidden group hover:z-30 hover:shadow-md transition-shadow ${course.locked ? 'cursor-default' : 'cursor-grab active:cursor-grabbing'} ${isHalf ? (isLeft ? 'left-0.5 right-1/2' : 'left-1/2 right-0.5') : 'left-0.5 right-0.5'}`}
                                 style={{
                                   top: startMin * PX_PER_MINUTE + 1,
-                                  height: optimisticDurMin * PX_PER_MINUTE - 2,
+                                  height: Math.max(10, optimisticDurMin * PX_PER_MINUTE - 2),
                                   backgroundColor: '#cbd5e1',
                                   backgroundImage: 'repeating-linear-gradient(45deg, transparent, transparent 5px, rgba(255,255,255,.5) 5px, rgba(255,255,255,.5) 10px)',
                                   color: '#334155',
@@ -535,7 +576,7 @@ export default function Schedule() {
                             className={`absolute rounded p-1.5 shadow-sm border border-slate-900/10 overflow-hidden group hover:z-30 hover:shadow-md transition-shadow ${course.locked ? 'cursor-default' : 'cursor-grab active:cursor-grabbing'} ${isHalf ? (isLeft ? 'left-0.5 right-1/2' : 'left-1/2 right-0.5') : 'left-0.5 right-0.5'}`}
                             style={{
                               top: startMin * PX_PER_MINUTE + 1,
-                              height: optimisticDurMin * PX_PER_MINUTE - 2,
+                              height: Math.max(10, optimisticDurMin * PX_PER_MINUTE - 2),
                               backgroundColor: tClass?.color || '#e2e8f0',
                               color: tClass?.color ? '#fff' : '#334155',
                               zIndex: 20,
