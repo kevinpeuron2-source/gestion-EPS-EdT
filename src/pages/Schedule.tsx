@@ -1,7 +1,7 @@
 import React, { useState, useMemo } from "react";
 import { useStore } from "../store/useStore";
 import { db } from "../lib/firebase";
-import { collection, addDoc, deleteDoc, doc, updateDoc } from "firebase/firestore";
+import { collection, addDoc, deleteDoc, doc, updateDoc, setDoc } from "firebase/firestore";
 import { Plus, Trash2, Lock, LockOpen, Printer } from "lucide-react";
 import { Course } from "../types";
 import { format, parse, differenceInMinutes, addMinutes } from "date-fns";
@@ -276,11 +276,11 @@ export default function Schedule() {
   };
 
   return (
-    <div className="flex flex-col h-full overflow-hidden schedule-container transition-colors">
-      <header className="p-6 bg-white dark:bg-slate-800 border-b border-slate-200 dark:border-slate-700 shrink-0 flex items-center justify-between no-print transition-colors">
+    <div className="flex flex-col h-full overflow-hidden schedule-container">
+      <header className="p-6 bg-white border-b border-slate-200 shrink-0 flex items-center justify-between no-print">
         <div>
-          <h2 className="text-2xl font-bold text-slate-800 dark:text-slate-100 tracking-tight">Emploi du temps</h2>
-          <p className="text-slate-500 dark:text-slate-400 text-sm mt-1">Gérez le planning hebdomadaire. Cliquez sur un créneau pour ajouter un cours.</p>
+          <h2 className="text-2xl font-bold text-slate-800 tracking-tight">Emploi du temps</h2>
+          <p className="text-slate-500 text-sm mt-1">Gérez le planning hebdomadaire. Cliquez sur un créneau pour ajouter un cours.</p>
         </div>
         <div className="flex items-center gap-3">
           {history.length > 0 && (
@@ -288,7 +288,7 @@ export default function Schedule() {
               <button 
                 onClick={undo} 
                 disabled={historyIndex < 0}
-                className="px-3 py-1.5 bg-slate-100 dark:bg-slate-700 hover:bg-slate-200 dark:hover:bg-slate-600 disabled:opacity-50 text-slate-700 dark:text-slate-200 rounded text-sm font-medium transition-colors"
+                className="px-3 py-1.5 bg-slate-100 hover:bg-slate-200 disabled:opacity-50 text-slate-700 rounded text-sm font-medium transition-colors"
                 title="Annuler (Ctrl+Z)"
               >
                 Annuler
@@ -296,28 +296,28 @@ export default function Schedule() {
               <button 
                 onClick={redo} 
                 disabled={historyIndex >= history.length - 1}
-                className="px-3 py-1.5 bg-slate-100 dark:bg-slate-700 hover:bg-slate-200 dark:hover:bg-slate-600 disabled:opacity-50 text-slate-700 dark:text-slate-200 rounded text-sm font-medium transition-colors"
+                className="px-3 py-1.5 bg-slate-100 hover:bg-slate-200 disabled:opacity-50 text-slate-700 rounded text-sm font-medium transition-colors"
                 title="Rétablir (Ctrl+Y)"
               >
                 Rétablir
               </button>
             </div>
           )}
-          <button onClick={() => window.print()} className="flex items-center gap-2 bg-white dark:bg-slate-800 border border-slate-300 dark:border-slate-600 text-slate-700 dark:text-slate-200 px-4 py-2 rounded-lg text-sm font-medium hover:bg-slate-50 dark:hover:bg-slate-700 transition-colors shadow-sm">
+          <button onClick={() => window.print()} className="flex items-center gap-2 bg-white border border-slate-300 text-slate-700 px-4 py-2 rounded-lg text-sm font-medium hover:bg-slate-50 transition-colors shadow-sm">
               <Printer className="w-4 h-4" />
               Imprimer (PDF)
           </button>
         </div>
       </header>
 
-      <div className="flex-1 overflow-auto bg-slate-100 dark:bg-slate-900 p-6 flex gap-6 transition-colors">
+      <div className="flex-1 overflow-auto bg-slate-100 p-6 flex gap-6">
         {/* Time axis */}
         <div className="w-12 shrink-0 relative mt-10">
           {(settings?.bellTimes || []).map((time, i) => {
             const t = timeToMinutes(time) - TIME_START * 60;
             if (t < 0) return null;
             return (
-              <div key={i} className="absolute w-full text-right pr-2 text-[10px] text-slate-500 dark:text-slate-400 font-medium font-mono" style={{ top: t * PX_PER_MINUTE - 6 }}>
+              <div key={i} className="absolute w-full text-right pr-2 text-[10px] text-slate-500 font-medium font-mono" style={{ top: t * PX_PER_MINUTE - 6 }}>
                 {time}
               </div>
             );
@@ -325,16 +325,16 @@ export default function Schedule() {
         </div>
 
         {/* Days Grid */}
-        <div className="flex flex-1 min-w-[1200px] border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 rounded-xl overflow-hidden shadow-sm divide-x divide-slate-100 dark:divide-slate-700 transition-colors">
+        <div className="flex flex-1 min-w-[1200px] border border-slate-200 bg-white rounded-xl overflow-hidden shadow-sm divide-x divide-slate-100">
           {DAYS.map((day, dIdx) => (
             <div key={day} className="flex-1 flex flex-col min-w-[200px]">
-              <div className="h-8 border-b border-slate-200 dark:border-slate-700 flex items-center justify-center bg-slate-100 dark:bg-slate-800/80 font-bold text-sm text-slate-700 dark:text-slate-300 uppercase tracking-wider transition-colors">
+              <div className="h-8 border-b border-slate-200 flex items-center justify-center bg-slate-100 font-bold text-sm text-slate-700 uppercase tracking-wider">
                 {day}
               </div>
               
-              <div className="flex flex-1 divide-x divide-slate-100 dark:divide-slate-700">
+              <div className="flex flex-1 divide-x divide-slate-100">
                 {teachers.length === 0 ? (
-                  <div className="flex-1 bg-slate-50/20 dark:bg-slate-800/20 p-4 text-center text-xs text-slate-400 dark:text-slate-500 italic">Ajoutez des professeurs dans Paramètres</div>
+                  <div className="flex-1 bg-slate-50/20 p-4 text-center text-xs text-slate-400 italic">Ajoutez des professeurs dans Paramètres</div>
                 ) : teachers.map((teacher) => {
                   const teacherCourses = courses.filter(c => (c.teacherId === teacher.id || c.coTeacherIds?.includes(teacher.id)) && !c.isUnavailability);
                   const totalMins = teacherCourses.reduce((acc, c) => {
@@ -610,7 +610,7 @@ export default function Schedule() {
                 <>
                   <div className="space-y-1">
                     <label className="text-xs font-medium text-slate-600">Co-enseignants (Optionnel)</label>
-                    <select multiple value={coTIds} onChange={e => setCoTIds(Array.from(e.target.selectedOptions, option => option.value))} className="form-select w-full text-sm rounded-md border-slate-300 bg-white h-20">
+                    <select multiple value={coTIds} onChange={e => setCoTIds(Array.from(e.target.selectedOptions, (option: HTMLOptionElement) => option.value))} className="form-select w-full text-sm rounded-md border-slate-300 bg-white h-20">
                       {teachers.filter(t => t.id !== tId).map(t => <option key={t.id} value={t.id}>{t.name}</option>)}
                     </select>
                   </div>

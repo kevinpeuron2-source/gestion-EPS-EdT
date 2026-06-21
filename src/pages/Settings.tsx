@@ -47,7 +47,8 @@ export default function Settings() {
   // Basic global time settings (Recess, Lunch break, School Year)
   const [recesses, setRecesses] = useState([...(settings?.recessTimes || [{ id: "rec-init", start: "10:15", end: "10:30", name: "Matin" }])]);
   const [lunchBreak, setLunchBreak] = useState(settings?.lunchBreak || { start: "12:30", end: "14:00" });
-  const [schoolYearWeeks, setSchoolYearWeeks] = useState(settings?.schoolYearWeeks || 36);
+  const [startWeek, setStartWeek] = useState(settings?.startWeek || 36);
+  const [endWeek, setEndWeek] = useState(settings?.endWeek || 27);
   const [holidays, setHolidays] = useState([...(settings?.holidays || [])]);
   const [bellTimes, setBellTimes] = useState(settings?.bellTimes || ["08:15", "09:10", "10:05", "10:20", "11:15", "11:55", "12:20", "12:45", "13:15", "13:45", "14:45", "15:15", "15:45", "16:50"]);
 
@@ -55,7 +56,8 @@ export default function Settings() {
     if (settings) {
       if (settings.recessTimes) setRecesses(settings.recessTimes);
       if (settings.lunchBreak) setLunchBreak(settings.lunchBreak);
-      if (settings.schoolYearWeeks) setSchoolYearWeeks(settings.schoolYearWeeks);
+      if (settings.startWeek) setStartWeek(settings.startWeek);
+      if (settings.endWeek) setEndWeek(settings.endWeek);
       if (settings.holidays) setHolidays(settings.holidays);
       if (settings.bellTimes) setBellTimes(settings.bellTimes);
     }
@@ -91,7 +93,8 @@ export default function Settings() {
     const updated = {
       recessTimes: recesses,
       lunchBreak,
-      schoolYearWeeks,
+      startWeek,
+      endWeek,
       holidays,
       bellTimes: sortedBells,
       updatedAt: new Date()
@@ -175,9 +178,15 @@ export default function Settings() {
                 <div className="space-y-4">
                   <div className="bg-slate-50 p-4 rounded-lg border border-slate-100">
                      <h4 className="text-sm font-medium text-slate-700 mb-3">Année scolaire</h4>
-                     <div className="flex items-center justify-between gap-4">
-                        <label className="text-sm text-slate-600">Nombre de semaines (cycle)</label>
-                        <input type="number" min="1" max="52" value={schoolYearWeeks} onChange={e => setSchoolYearWeeks(parseInt(e.target.value))} className="form-input text-sm rounded-md border-slate-300 w-24" />
+                     <div className="flex items-center gap-4">
+                        <div className="flex-1">
+                          <label className="block text-xs font-medium text-slate-500 mb-1">Sem. de début</label>
+                          <input type="number" min="1" max="52" value={startWeek} onChange={e => setStartWeek(parseInt(e.target.value))} className="form-input text-sm rounded-md border-slate-300 w-full" />
+                        </div>
+                        <div className="flex-1">
+                          <label className="block text-xs font-medium text-slate-500 mb-1">Sem. de fin</label>
+                          <input type="number" min="1" max="52" value={endWeek} onChange={e => setEndWeek(parseInt(e.target.value))} className="form-input text-sm rounded-md border-slate-300 w-full" />
+                        </div>
                      </div>
                   </div>
 
@@ -294,14 +303,61 @@ export default function Settings() {
           <h3 className="text-sm font-bold text-slate-500 uppercase mb-4">Classes</h3>
           <ul className="space-y-2 mb-4 max-h-60 overflow-y-auto">
             {classes.map(c => (
-              <li key={c.id} className="flex items-center justify-between p-2 hover:bg-slate-50 rounded-lg group border border-transparent hover:border-slate-100 transition-colors">
+              <li key={c.id} className="flex flex-col p-3 hover:bg-slate-50 rounded-lg group border border-slate-100 transition-colors">
                 <div className="flex items-center gap-3">
-                  <div className="w-2 h-2 rounded-full" style={{ backgroundColor: c.color }} />
-                  <span className="text-sm font-medium text-slate-800">{c.name}</span>
+                  <div className="w-2 h-2 rounded-full shrink-0" style={{ backgroundColor: c.color }} />
+                  <input value={c.name} onChange={(e) => updateDoc(doc(db, "classes", c.id), { name: e.target.value })} className="font-medium text-sm text-slate-800 bg-transparent border border-transparent hover:border-slate-200 rounded px-1 py-0.5 focus:ring-0 focus:border-blue-500" />
+                  <select 
+                    value={c.level || ""} 
+                    onChange={(e) => updateDoc(doc(db, "classes", c.id), { level: e.target.value })}
+                    className="text-xs border-slate-200 rounded py-1 ml-auto"
+                  >
+                    <option value="">Niveau...</option>
+                    <option value="2nde">2nde</option>
+                    <option value="1ère">1ère</option>
+                    <option value="Terminale">Terminale</option>
+                  </select>
+                  <button onClick={() => deleteItem("classes", c.id)} className="text-slate-400 hover:text-red-500 opacity-0 group-hover:opacity-100 transition-opacity">
+                    <Trash2 className="w-4 h-4" />
+                  </button>
                 </div>
-                <button onClick={() => deleteItem("classes", c.id)} className="text-slate-400 hover:text-red-500 opacity-0 group-hover:opacity-100 transition-opacity">
-                  <Trash2 className="w-4 h-4" />
-                </button>
+                {c.level === 'Terminale' && (
+                  <div className="mt-2 pl-5 flex flex-wrap gap-4 text-xs text-slate-600">
+                    <div className="flex items-center gap-2">
+                      <span>Rattrapages :</span>
+                      <input type="date" value={c.catchUpDate || ""} onChange={(e) => updateDoc(doc(db, "classes", c.id), { catchUpDate: e.target.value })} className="text-xs border-slate-200 rounded py-0.5" />
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <span>Arrêt notes CCF :</span>
+                      <input type="date" value={c.ccfDeadline || ""} onChange={(e) => updateDoc(doc(db, "classes", c.id), { ccfDeadline: e.target.value })} className="text-xs border-slate-200 rounded py-0.5" />
+                    </div>
+                  </div>
+                )}
+                {/* Important Dates simple manager */}
+                <div className="mt-2 pl-5">
+                   {c.importantDates?.map((d, index) => (
+                      <div key={d.id} className="flex items-center gap-2 mt-1">
+                        <input type="date" value={d.date} onChange={(e) => {
+                          const newDates = [...(c.importantDates || [])];
+                          newDates[index].date = e.target.value;
+                          updateDoc(doc(db, "classes", c.id), { importantDates: newDates });
+                        }} className="text-xs border-slate-200 rounded py-0.5" />
+                        <input type="text" placeholder="Description courte (ex: Stage)" value={d.description} onChange={(e) => {
+                          const newDates = [...(c.importantDates || [])];
+                          newDates[index].description = e.target.value;
+                          updateDoc(doc(db, "classes", c.id), { importantDates: newDates });
+                        }} className="text-xs border-slate-200 rounded py-0.5 flex-1" />
+                        <button onClick={() => {
+                          const newDates = c.importantDates?.filter(xd => xd.id !== d.id);
+                          updateDoc(doc(db, "classes", c.id), { importantDates: newDates });
+                        }} className="text-slate-400 hover:text-red-500"><Trash2 className="w-3 h-3" /></button>
+                      </div>
+                   ))}
+                   <button onClick={() => {
+                      const newDates = [...(c.importantDates || []), { id: Date.now().toString(), date: "", description: "" }];
+                      updateDoc(doc(db, "classes", c.id), { importantDates: newDates });
+                   }} className="text-[10px] text-blue-600 hover:text-blue-800 font-medium mt-1">+ Date importante</button>
+                </div>
               </li>
             ))}
             {classes.length === 0 && <li className="text-sm text-slate-400 italic">Aucune classe</li>}

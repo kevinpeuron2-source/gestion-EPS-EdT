@@ -3,6 +3,7 @@ import { useStore } from "../store/useStore";
 import { db } from "../lib/firebase";
 import { collection, addDoc, deleteDoc, doc } from "firebase/firestore";
 import { Plus, Trash2, Activity as ActivityIcon, CalendarDays, Wand2 } from "lucide-react";
+import { getISOWeek, parseISO } from "date-fns";
 
 export default function Activities() {
   const { activities, absences, classes, facilities, courses, scheduledActivities, settings } = useStore();
@@ -61,6 +62,36 @@ export default function Activities() {
     setAbsReason("");
   };
 
+  const startW = settings?.startWeek || 36;
+  const endW = settings?.endWeek || 27;
+
+  const getWeekNumbers = (start: number, end: number) => {
+    const weeks = [];
+    let current = start;
+    while (true) {
+      weeks.push(current);
+      if (current === end) break;
+      current++;
+      if (current > 52) current = 1;
+      if (weeks.length > 53) break;
+    }
+    return weeks;
+  };
+
+  const weekNumbers = React.useMemo(() => getWeekNumbers(startW, endW), [startW, endW]);
+  const totalWks = weekNumbers.length;
+
+  const isHoliday = (wk: number) => {
+    const calendarWeek = weekNumbers[wk - 1];
+    return settings?.holidays?.some(h => {
+        // holidays are given in calendar weeks
+        // h.startWeek to h.endWeek
+        // because of wrapping, we check mapping
+        const hStart = getWeekNumbers(h.startWeek, h.endWeek);
+        return hStart.includes(calendarWeek);
+    }) || false;
+  };
+
   const generateSchedule = async () => {
     setOptimizing(true);
     try {
@@ -68,8 +99,6 @@ export default function Activities() {
         await deleteDoc(doc(db, "scheduledActivities", sa.id));
       }
 
-      const totalWks = settings?.schoolYearWeeks || 36;
-      const isHoliday = (wk: number) => settings?.holidays?.some(h => wk >= h.startWeek && wk <= h.endWeek) || false;
       const timeToMin = (t: string) => {
         const [h, m] = t.split(":").map(Number);
         return h * 60 + m;
@@ -323,10 +352,12 @@ export default function Activities() {
               <div className="flex border-b border-slate-200 pb-2 mb-2">
                 <div className="w-32 shrink-0 font-semibold text-xs text-slate-500 uppercase">Classe</div>
                 <div className="flex-1 flex relative">
-                  {Array.from({ length: settings?.schoolYearWeeks || 36 }).map((_, i) => {
-                    const isHol = settings?.holidays?.some(h => i+1 >= h.startWeek && i+1 <= h.endWeek);
+                  {weekNumbers.map((calendarWeek, i) => {
+                    const isHol = isHoliday(i + 1);
                     return (
-                      <div key={i} className={`flex-1 text-center text-[10px] ${isHol ? 'text-amber-500 font-bold bg-amber-50' : 'text-slate-400'} border-l border-slate-100 first:border-0`}>{i+1}</div>
+                      <div key={i} className={`flex-1 text-center text-[10px] ${isHol ? 'text-amber-500 font-bold bg-amber-50' : 'text-slate-400'} border-l border-slate-100 first:border-0`} title={`Semaine Calendaire ${calendarWeek}`}>
+                        {calendarWeek}
+                      </div>
                     );
                   })}
                 </div>
@@ -339,35 +370,75 @@ export default function Activities() {
                   
                   return (
                     <div key={c.id} className="flex items-center min-h-[32px]">
-                      <div className="w-32 shrink-0 text-sm font-medium text-slate-800 flex items-center gap-2">
-                        <div className="w-2 h-2 rounded-full" style={{ backgroundColor: c.color }} />
-                        {c.name}
+                      <div className="w-32 shrink-0 text-sm font-medium text-slate-800 flex flex-col justify-center">
+                         <div className="flex items-center gap-2">
+                           <div className="w-2 h-2 rounded-full" style={{ backgroundColor: c.color }} />
+                           {c.name}
+                         </div>
+                         {c.level === 'Terminale' && c.catchUpDate && (
+                           <div className="text-[9px] text-slate-400 truncate mt-0.5" title={`Rattrapages: ${c.catchUpDate}`}>Rattrapage: {c.catchUpDate}</div>
+                         )}
+                         {c.level === 'Terminale' && c.ccfDeadline && (
+                           <div className="text-[9px] text-slate-400 truncate mt-0.5" title={`Arrêt CCF: ${c.ccfDeadline}`}>CCF: {c.ccfDeadline}</div>
+                         )}
                       </div>
                       <div className="flex-1 flex relative h-8 bg-slate-50 rounded-md border border-slate-100 overflow-hidden">
                         {/* Draw Holidays Background */}
                         {settings?.holidays?.map(h => {
-                            const maxW = settings?.schoolYearWeeks || 36;
-                            const left = Math.max(0, (h.startWeek - 1) / maxW * 100);
-                            const width = Math.min(100 - left, (h.endWeek - h.startWeek + 1) / maxW * 100);
+                            const calWeeks = getWeekNumbers(h.startWeek, h.endWeek);
+                            const startIdx = weekNumbers.indexOf(calWeeks[0]);
+                            const endIdx = weekNumbers.indexOf(calWeeks[calWeeks.length - 1]);
+                            if (startIdx === -1 || endIdx === -1) return null; // out of scope
+                            const left = (startIdx / totalWks) * 100;
+                            const width = ((endIdx - startIdx + 1) / totalWks) * 100;
                             return <div key={h.id} className="absolute top-0 bottom-0 bg-amber-100/50 mix-blend-multiply" style={{ left: `${left}%`, width: `${width}%` }} title={h.name} />
                         })}
 
+                        {/* Draw SAs */}
                         {mySAs.map(sa => {
                           const act = activities.find(a => a.id === sa.activityId);
                           const fac = facilities.find(f => f.id === act?.facilityId);
-                          const maxW = settings?.schoolYearWeeks || 36;
-                          const left = Math.max(0, (sa.startWeek - 1) / maxW * 100);
-                          const width = Math.min(100 - left, (sa.endWeek - sa.startWeek + 1) / maxW * 100);
+                          // sa.startWeek and sa.endWeek are relative indices 1..totalWks
+                          const left = Math.max(0, (sa.startWeek - 1) / totalWks * 100);
+                          const width = Math.min(100 - left, (sa.endWeek - sa.startWeek + 1) / totalWks * 100);
+                          const calS = weekNumbers[sa.startWeek - 1];
+                          const calE = weekNumbers[sa.endWeek - 1];
                           return (
                             <div 
                               key={sa.id} 
                               className="absolute top-0 bottom-0 m-0.5 rounded px-2 flex flex-col justify-center overflow-hidden shadow-sm shadow-slate-200"
                               style={{ left: `${left}%`, width: `${width}%`, backgroundColor: fac?.color || '#e2e8f0' }}
-                              title={`${act?.name} (${fac?.name}) - Sem. ${sa.startWeek} à ${sa.endWeek}`}
+                              title={`${act?.name} (${fac?.name}) - Sem. ${calS} à ${calE}`}
                             >
                               <div className="text-[10px] font-bold text-white truncate drop-shadow-md">{act?.name}</div>
                             </div>
                           );
+                        })}
+                        
+                        {/* Draw Important Dates (simple dot indication) */}
+                        {c.importantDates?.map(d => {
+                          if (!d.date) return null;
+                          try {
+                            const dateObj = parseISO(d.date);
+                            const wk = getISOWeek(dateObj);
+                            const idx = weekNumbers.indexOf(wk);
+                            if (idx === -1) return null;
+                            const left = ((idx + 0.5) / totalWks) * 100;
+                            return (
+                              <div 
+                                key={d.id} 
+                                className="absolute top-0 w-0.5 bg-red-500 h-full z-10 hover:w-1 hover:bg-red-600 transition-all cursor-crosshair group/date"
+                                style={{ left: `${left}%` }} 
+                                title={`${d.description} (${d.date})`}
+                              >
+                                <div className="hidden group-hover/date:block absolute top-full left-1/2 -translate-x-1/2 mt-1 bg-slate-800 text-white text-[10px] py-0.5 px-1.5 rounded whitespace-nowrap z-20">
+                                  {d.description}
+                                </div>
+                              </div>
+                            );
+                          } catch(e) {
+                            return null;
+                          }
                         })}
                       </div>
                     </div>

@@ -29,14 +29,39 @@ export function useFirebaseSync() {
     const settingsQ = query(collection(db, "settings"));
     unsubs.push(onSnapshot(settingsQ, (snap) => {
       if (!snap.empty) {
-        const doc = snap.docs[0];
-        setSettings({ id: doc.id, ...doc.data() } as Settings);
+        const docSnap = snap.docs[0];
+        const data = docSnap.data();
+        
+        // Force migration to specific new times if they use the previous default
+        if (data.bellTimes && data.bellTimes.length === 7 && data.bellTimes[0] === "08:00") {
+          const newData = {
+            ...data,
+            recessTimes: [
+              { id: "def1", start: "10:05", end: "10:20", name: "Matin" },
+              { id: "def2", start: "15:15", end: "15:30", name: "Après-midi" }
+            ],
+            lunchBreak: { start: "12:20", end: "12:45" },
+            bellTimes: ["08:15", "09:10", "10:05", "10:20", "11:20", "12:20", "12:45", "13:15", "14:15", "15:15", "15:30", "16:25", "16:50"],
+            startWeek: 36,
+            endWeek: 27
+          };
+          setSettings({ id: docSnap.id, ...newData } as Settings);
+          import('firebase/firestore').then(({ doc, updateDoc }) => {
+            updateDoc(doc(db, "settings", docSnap.id), newData);
+          });
+        } else {
+          setSettings({ id: docSnap.id, ...data } as Settings);
+        }
       } else {
         setSettings({
-          recessTimes: [{ id: "def1", start: "10:00", end: "10:15", name: "Matin" }],
-          lunchBreak: { start: "12:00", end: "13:30" },
-          bellTimes: ["08:00", "09:00", "10:15", "11:15", "13:30", "14:30", "15:30"],
-          schoolYearWeeks: 36,
+          recessTimes: [
+            { id: "def1", start: "10:05", end: "10:20", name: "Matin" },
+            { id: "def2", start: "15:15", end: "15:30", name: "Après-midi" }
+          ],
+          lunchBreak: { start: "12:20", end: "12:45" },
+          bellTimes: ["08:15", "09:10", "10:05", "10:20", "11:20", "12:20", "12:45", "13:15", "14:15", "15:15", "15:30", "16:25", "16:50"],
+          startWeek: 36,
+          endWeek: 27,
           holidays: []
         });
       }

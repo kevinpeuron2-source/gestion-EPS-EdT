@@ -28,6 +28,10 @@ export interface ClassGroup {
   defaultTeacherId?: string;
   preferredFacilityId?: string;
   requirements?: ClassRequirement[];
+  level?: "2nde" | "1ère" | "Terminale" | "";
+  catchUpDate?: string;
+  ccfDeadline?: string;
+  importantDates?: { id: string; date: string; description: string }[];
 }
 
 export interface Facility {
@@ -73,7 +77,9 @@ export interface Settings {
   id?: string;
   recessTimes: { id: string; start: string; end: string; name: string }[];
   lunchBreak: { start: string; end: string };
-  schoolYearWeeks: number;
+  schoolYearWeeks?: number;
+  startWeek?: number;
+  endWeek?: number;
   holidays: { id: string; startWeek: number; endWeek: number; name: string }[];
   bellTimes: string[];
 }
