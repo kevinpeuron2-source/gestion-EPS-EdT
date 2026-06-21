@@ -310,7 +310,7 @@ export default function Schedule() {
         </div>
       </header>
 
-      <div className="flex-1 overflow-auto bg-slate-100 p-6 flex gap-6 items-start">
+      <div className="flex-1 overflow-auto bg-slate-100 p-6 flex gap-6 items-start print:overflow-visible print:flex print:h-auto print:bg-white print:p-0">
         {/* Time axis */}
         <div className="w-12 shrink-0 relative mt-16">
           {/* Draw standard hour markers */}
@@ -329,8 +329,13 @@ export default function Schedule() {
           })}
           
           {/* Draw bell times prominently */}
-          {Array.from(new Set([...(settings?.bellTimes || []), "17:00", "18:00", "18:30", "19:00"].filter(Boolean))).sort((a, b) => String(a).localeCompare(String(b))).map((time, i) => {
+          {Array.from(new Set([
+            ...(settings?.bellTimes || []), 
+            ...Array.from({ length: 12 }).map((_, h) => `${(h + 8).toString().padStart(2, '0')}:00`),
+            "18:30"
+          ].filter(Boolean))).sort((a, b) => String(a).localeCompare(String(b))).map((time, i) => {
             if (typeof time !== 'string') return null;
+            if (time.endsWith(':00')) return null; // let standard hour markers handle it
             const t = timeToMinutes(time) - TIME_START * 60;
             if (t < 0) return null;
             return (
@@ -368,12 +373,22 @@ export default function Schedule() {
                   return (
                   <div key={teacher.id} className="flex-1 flex flex-col min-w-[80px]">
                     <div 
-                      className="h-10 border-b border-slate-200 flex flex-col items-center justify-center text-xs font-semibold text-white px-1"
+                      className="h-14 border-b border-slate-200 flex flex-col items-center justify-center text-xs font-semibold text-white px-1 print:h-10"
                       style={{ backgroundColor: teacher.color }}
                       title={teacher.name}
                     >
                       <span className="truncate w-full text-center leading-tight">{teacher.name}</span>
-                      <span className="text-[9px] font-bold opacity-80 leading-tight">[{totalHours.toFixed(1)}h / {targetHours}h]</span>
+                      <span className="text-[9px] font-bold opacity-80 leading-tight print:hidden">[{totalHours.toFixed(1)}h / {targetHours}h]</span>
+                      
+                      <button 
+                        onClick={() => {
+                          setTId(teacher.id);
+                          handleAddClick(day, "08:00", "09:00");
+                        }}
+                        className="mt-0.5 bg-white/20 hover:bg-white/30 text-white rounded px-2 py-0.5 flex items-center gap-1 text-[9px] transition-colors print:hidden"
+                      >
+                        <Plus className="w-2.5 h-2.5" /> Ajouter
+                      </button>
                     </div>
                     
                     <div 
@@ -390,7 +405,11 @@ export default function Schedule() {
                       })}
 
                       {/* Bell times grid lines */}
-                      {Array.from(new Set([...(settings?.bellTimes || []), "17:00", "18:00", "18:30", "19:00"].filter(Boolean))).sort((a, b) => String(a).localeCompare(String(b))).map((time, i) => {
+                      {Array.from(new Set([
+                        ...(settings?.bellTimes || []), 
+                        ...Array.from({ length: 12 }).map((_, h) => `${(h + 8).toString().padStart(2, '0')}:00`),
+                        "18:30"
+                      ].filter(Boolean))).sort((a, b) => String(a).localeCompare(String(b))).map((time, i) => {
                          if (typeof time !== 'string' || time.endsWith(':00')) return null; // Avoid overlapping with standard hours
                          const t = timeToMinutes(time) - TIME_START * 60;
                          if (t < 0) return null;
@@ -402,19 +421,23 @@ export default function Schedule() {
                         const s = timeToMinutes(r.start) - TIME_START * 60;
                         const duration = timeToMinutes(r.end) - timeToMinutes(r.start);
                         if (s < 0) return null;
-                        return <div key={r.id || r.start} className="absolute w-full bg-pink-50/50 border-y border-pink-100/50 flex flex-col items-center justify-center pointer-events-none overflow-hidden" style={{ top: s * PX_PER_MINUTE, height: duration * PX_PER_MINUTE }}><span className="text-[8px] text-pink-500 font-bold uppercase tracking-wider opacity-50 truncate w-full text-center">{r.name || 'Récré'}</span></div>;
+                        return <div key={r.id || r.start} className="absolute w-full bg-pink-100/70 border-y border-pink-200 flex flex-col items-center justify-center pointer-events-none overflow-hidden" style={{ top: s * PX_PER_MINUTE, height: duration * PX_PER_MINUTE, zIndex: 14 }}><span className="text-[10px] text-pink-600 font-bold uppercase tracking-widest opacity-80 truncate w-full text-center">{r.name || 'Récré'}</span></div>;
                       })}
                       {settings?.lunchBreak && (
                         (() => {
                           const s = timeToMinutes(settings.lunchBreak.start) - TIME_START * 60;
                           const duration = timeToMinutes(settings.lunchBreak.end) - timeToMinutes(settings.lunchBreak.start);
                           if (s < 0) return null;
-                          return <div className="absolute w-full bg-amber-50/50 border-y border-amber-100/50 flex flex-col items-center justify-center pointer-events-none overflow-hidden" style={{ top: s * PX_PER_MINUTE, height: duration * PX_PER_MINUTE }}><span className="text-[8px] text-amber-600 font-bold uppercase tracking-wider opacity-50 truncate w-full text-center">Pause</span></div>;
+                          return <div className="absolute w-full bg-amber-100/70 border-y border-amber-200 flex flex-col items-center justify-center pointer-events-none overflow-hidden" style={{ top: s * PX_PER_MINUTE, height: duration * PX_PER_MINUTE, zIndex: 14 }}><span className="text-[10px] text-amber-700 font-bold uppercase tracking-widest opacity-80 truncate w-full text-center">Pause Midi</span></div>;
                         })()
                       )}
 
                       {/* Clickable areas to add courses */}
-                      {Array.from(new Set([...(settings?.bellTimes || []), "17:00", "18:00", "18:30", "19:00"].filter(Boolean))).sort((a, b) => String(a).localeCompare(String(b))).map((time, i, bells) => {
+                      {Array.from(new Set([
+                        ...(settings?.bellTimes || []), 
+                        ...Array.from({ length: 12 }).map((_, h) => `${(h + 8).toString().padStart(2, '0')}:00`),
+                        "18:30"
+                      ].filter(Boolean))).sort((a, b) => String(a).localeCompare(String(b))).map((time, i, bells) => {
                         if (i === bells.length - 1 || typeof time !== 'string') return null;
                         const nextTime = bells[i+1];
                         if (typeof nextTime !== 'string') return null;
@@ -431,9 +454,11 @@ export default function Schedule() {
                             setTId(teacher.id);
                             handleAddClick(day, time, bells[i+1] as string);
                           }}
-                          className="absolute w-full hover:bg-slate-100/50 cursor-crosshair transition-colors"
+                          className="absolute w-full hover:bg-blue-50/60 group cursor-pointer transition-colors flex items-center justify-center border border-transparent hover:border-blue-200/60 print:hidden"
                           style={{ top: startM * PX_PER_MINUTE, height: duration * PX_PER_MINUTE, zIndex: 10 }}
-                        />
+                        >
+                          <Plus className="w-5 h-5 text-blue-500 opacity-0 group-hover:opacity-100 transition-opacity drop-shadow-sm scale-75 group-hover:scale-100" />
+                        </div>
                       )})}
 
                       {/* Placed Courses */}
