@@ -1,222 +1,104 @@
-import React, { useState, useMemo } from "react";
+import React, { useState } from "react";
 import { useStore } from "../store/useStore";
 import { db } from "../lib/firebase";
-import { collection, addDoc, deleteDoc, doc, updateDoc, setDoc } from "firebase/firestore";
+import { collection, addDoc, deleteDoc, doc, updateDoc } from "firebase/firestore";
 import { Plus, Trash2, Lock, LockOpen, Printer } from "lucide-react";
 import { Course } from "../types";
-import { format, parse, differenceInMinutes, addMinutes } from "date-fns";
 
 const DAYS = ["Lundi", "Mardi", "Mercredi", "Jeudi", "Vendredi"];
-const TIME_START = 8;  // 08:00
-const TIME_END = 19;   // 19:00
-const PX_PER_MINUTE = 2;
+const TIME_START = 8;
+const TIME_END = 19;
+const PX_PER_MINUTE = 2; // 1 hour = 120 pixels
+
+const timeToMinutes = (timeStr: string) => {
+  if (!timeStr) return 0;
+  const [h, m] = timeStr.split(":").map(Number);
+  return h * 60 + m;
+};
+
+const formatTime = (minutes: number) => {
+  const h = Math.floor(minutes / 60);
+  const m = Math.floor(minutes % 60);
+  return `${h.toString().padStart(2, '0')}:${m.toString().padStart(2, '0')}`;
+};
 
 export default function Schedule() {
   const { teachers, classes, facilities, courses, settings } = useStore();
-  const [addingCourse, setAddingCourse] = useState<{ day: string; time: string } | null>(null);
 
-  const [tId, setTId] = useState("");
-  const [coTIds, setCoTIds] = useState<string[]>([]);
-  const [cId, setCId] = useState("");
-  const [fId, setFId] = useState("");
-  const [startT, setStartT] = useState("");
-  const [endT, setEndT] = useState("");
-  const [weekType, setWeekType] = useState<'ALL' | 'A' | 'B'>('ALL');
-  const [editingCourseId, setEditingCourseId] = useState<string | null>(null);
-  const [isUnavail, setIsUnavail] = useState(false);
-  const [reason, setReason] = useState("");
+  const [modalData, setModalData] = useState<{
+    id?: string;
+    dayOfWeek: string;
+    teacherId: string;
+    startTime: string;
+    endTime: string;
+    classId?: string;
+    facilityId?: string;
+    coTeacherIds?: string[];
+    isUnavailability?: boolean;
+    reason?: string;
+    weekType?: 'ALL' | 'A' | 'B';
+    locked?: boolean;
+  } | null>(null);
 
-  const [resizingCourse, setResizingCourse] = useState<{ id: string; initialY: number; initialEndMins: number } | null>(null);
-  const [draftCourse, setDraftCourse] = useState<{ day: string; teacherId: string; startMins: number; endMins: number; initialY: number } | null>(null);
-  const [optimisticEnd, setOptimisticEnd] = useState<{ [id: string]: string }>({});
+  const handleBackgroundClick = (e: React.MouseEvent<HTMLDivElement>, day: string, teacherId: string) => {
+    // Only trigger if we click directly on the background
+    if (e.target !== e.currentTarget) return;
 
-  const [history, setHistory] = useState<Course[][]>([]);
-  const [historyIndex, setHistoryIndex] = useState(-1);
+    const rect = e.currentTarget.getBoundingClientRect();
+    const y = e.clientY - rect.top;
+    let clickedMins = TIME_START * 60 + Math.floor(y / PX_PER_MINUTE);
 
-  const pushHistory = () => {
-    const newHistory = history.slice(0, historyIndex + 1);
-    newHistory.push(JSON.parse(JSON.stringify(courses)));
-    if (newHistory.length > 20) newHistory.shift();
-    setHistory(newHistory);
-    setHistoryIndex(newHistory.length - 1);
-  };
-
-  const undo = async () => {
-    if (historyIndex < 0) return;
-    const prevCourses = history[historyIndex];
-    setHistoryIndex(historyIndex - 1);
-    await syncCourses(prevCourses);
-  };
-
-  const redo = async () => {
-    if (historyIndex >= history.length - 1) return;
-    const nextCourses = history[historyIndex + 1];
-    setHistoryIndex(historyIndex + 1);
-    await syncCourses(nextCourses);
-  };
-
-  const syncCourses = async (targetCourses: Course[]) => {
-    const currentMap = new Map(courses.map(c => [c.id, c]));
-    const targetMap = new Map(targetCourses.map(c => [c.id, c]));
+    // Snap to 15 min or 55 min intervals? 15 min snap
+    const snappedMins = Math.floor(clickedMins / 15) * 15;
     
-    // Add & Update
-    for (const [id, targetCourse] of targetMap.entries()) {
-      const currentCourse = currentMap.get(id);
-      if (!currentCourse) {
-        const { id: _, ...data } = targetCourse;
-        await setDoc(doc(db, "courses", id), data);
-      } else if (JSON.stringify(currentCourse) !== JSON.stringify(targetCourse)) {
-        const { id: _, ...data } = targetCourse;
+    // Check if adding this would span past TIME_END
+    const startMins = Math.min(snappedMins, TIME_END * 60 - 55);
+    const endMins = startMins + 55; // Default 55 min duration
+
+    setModalData({
+      dayOfWeek: day,
+      teacherId,
+      startTime: formatTime(startMins),
+      endTime: formatTime(endMins),
+      classId: "",
+      facilityId: "",
+      coTeacherIds: [],
+      weekType: 'ALL',
+      isUnavailability: false,
+    });
+  };
+
+  const saveCourse = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!modalData) return;
+
+    try {
+      if (modalData.id) {
+        const { id, ...data } = modalData;
         await updateDoc(doc(db, "courses", id), data);
+      } else {
+        await addDoc(collection(db, "courses"), modalData);
       }
-    }
-    
-    // Delete
-    for (const id of currentMap.keys()) {
-      if (!targetMap.has(id)) {
-        await deleteDoc(doc(db, "courses", id));
-      }
+      setModalData(null);
+    } catch (err) {
+      console.error(err);
     }
   };
 
-  React.useEffect(() => {
-    const handleKeyDown = (e: KeyboardEvent) => {
-      if ((e.ctrlKey || e.metaKey) && e.key === 'z') {
-        if (e.shiftKey) {
-           e.preventDefault();
-           redo();
-        } else {
-           e.preventDefault();
-           undo();
-        }
-      } else if ((e.ctrlKey || e.metaKey) && e.key === 'y') {
-        e.preventDefault();
-        redo();
-      }
-    };
-    window.addEventListener('keydown', handleKeyDown);
-    return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [history, historyIndex, courses]);
-
-  const timeToMinutes = (timeStr: string) => {
-    if (!timeStr) return 0;
-    const [h, m] = timeStr.split(":").map(Number);
-    return h * 60 + m;
+  const deleteCourse = async (id: string, e?: React.MouseEvent) => {
+    e?.stopPropagation();
+    if (!window.confirm("Supprimer ce créneau ?")) return;
+    try {
+      await deleteDoc(doc(db, "courses", id));
+      if (modalData?.id === id) setModalData(null);
+    } catch (err) {}
   };
 
-  React.useEffect(() => {
-    if (!resizingCourse) return;
-
-    const handleMouseMove = (e: MouseEvent) => {
-      const deltaY = e.clientY - resizingCourse.initialY;
-      const deltaMins = Math.round((deltaY / PX_PER_MINUTE) / 5) * 5;
-      
-      const course = courses.find(c => c.id === resizingCourse.id);
-      if (!course) return;
-
-      const startMins = timeToMinutes(course.startTime);
-      const newEndMins = Math.max(startMins + 15, resizingCourse.initialEndMins + deltaMins);
-      
-      const h = Math.floor(newEndMins / 60);
-      const m = newEndMins % 60;
-      const newEnd = `${h.toString().padStart(2, '0')}:${m.toString().padStart(2, '0')}`;
-      
-      setOptimisticEnd({ [course.id]: newEnd });
-    };
-
-    const handleMouseUp = async () => {
-      const courseId = resizingCourse.id;
-      const newEnd = optimisticEnd[courseId];
-      
-      setResizingCourse(null);
-      setOptimisticEnd({});
-      
-      if (newEnd) {
-         try {
-             pushHistory();
-             await updateDoc(doc(db, "courses", courseId), { endTime: newEnd });
-         } catch(e) {}
-      }
-    };
-
-    window.addEventListener('mousemove', handleMouseMove);
-    window.addEventListener('mouseup', handleMouseUp);
-    return () => {
-      window.removeEventListener('mousemove', handleMouseMove);
-      window.removeEventListener('mouseup', handleMouseUp);
-    };
-  }, [resizingCourse, optimisticEnd, courses]);
-
-  React.useEffect(() => {
-    if (!draftCourse) return;
-
-    const handleMouseMove = (e: MouseEvent) => {
-      const deltaY = e.clientY - draftCourse.initialY;
-      const deltaMins = Math.round(deltaY / PX_PER_MINUTE);
-      
-      // Snap the end time to 15 min increments based on delta
-      const newEndMins = Math.max(draftCourse.startMins + 15, Math.ceil((draftCourse.startMins + 30 + deltaMins) / 15) * 15);
-      
-      setDraftCourse(prev => prev ? { ...prev, endMins: newEndMins } : null);
-    };
-
-    const handleMouseUp = () => {
-      if (!draftCourse) return;
-      
-      const startH = Math.floor(draftCourse.startMins / 60) + TIME_START;
-      const startM = draftCourse.startMins % 60;
-      const endH = Math.floor(draftCourse.endMins / 60) + TIME_START;
-      const endM = draftCourse.endMins % 60;
-      
-      setTId(draftCourse.teacherId);
-      handleAddClick(draftCourse.day, 
-         `${startH.toString().padStart(2, '0')}:${startM.toString().padStart(2, '0')}`,
-         `${endH.toString().padStart(2, '0')}:${endM.toString().padStart(2, '0')}`
-      );
-      
-      setDraftCourse(null);
-    };
-
-    window.addEventListener('mousemove', handleMouseMove);
-    window.addEventListener('mouseup', handleMouseUp);
-    return () => {
-      window.removeEventListener('mousemove', handleMouseMove);
-      window.removeEventListener('mouseup', handleMouseUp);
-    };
-  }, [draftCourse]);
-
-  const handleAddClick = (dayOfDay: string, start: string, end: string) => {
-    setAddingCourse({ day: dayOfDay, time: start });
-    setStartT(start);
-    setEndT(end);
-    setCId("");
-    setFId("");
-    setCoTIds([]);
-    setWeekType('ALL');
-    setEditingCourseId(null);
-    setIsUnavail(false);
-    setReason("");
-  };
-
-  const setDuration = (mins: number) => {
-     if (!startT) return;
-     const [h, m] = startT.split(':').map(Number);
-     const total = h * 60 + m + mins;
-     const nh = Math.floor(total / 60);
-     const nm = total % 60;
-     setEndT(`${nh.toString().padStart(2, '0')}:${nm.toString().padStart(2, '0')}`);
-  };
-
-  const toggleLock = async (id: string, current: boolean, e: React.MouseEvent) => {
+  const toggleLock = async (course: Course, e: React.MouseEvent) => {
     e.stopPropagation();
-    pushHistory();
-    await updateDoc(doc(db, "courses", id), { locked: !current });
-  };
-
-  const minutesToTime = (mins: number) => {
-    const h = Math.floor(mins / 60);
-    const m = mins % 60;
-    return `${h.toString().padStart(2, '0')}:${m.toString().padStart(2, '0')}`;
+    try {
+      await updateDoc(doc(db, "courses", course.id), { locked: !course.locked });
+    } catch (err) {}
   };
 
   const handleDragStart = (e: React.DragEvent, course: Course) => {
@@ -224,417 +106,186 @@ export default function Schedule() {
       e.preventDefault();
       return;
     }
-    e.dataTransfer.setData("application/json", JSON.stringify({ type: "COURSE", id: course.id }));
-    e.dataTransfer.effectAllowed = "move";
+    e.dataTransfer.setData('text/plain', course.id);
   };
 
-  const handleDrop = async (e: React.DragEvent, dayId: string, teacherId: string) => {
+  const handleDrop = async (e: React.DragEvent, day: string, teacherId: string) => {
     e.preventDefault();
-    try {
-      const data = JSON.parse(e.dataTransfer.getData("application/json") || "{}");
-      if (data.type !== "COURSE") return;
-      
-      const rect = e.currentTarget.getBoundingClientRect();
-      const yOffset = e.clientY - rect.top;
-      let droppedMinutes = TIME_START * 60 + Math.floor(yOffset / PX_PER_MINUTE);
-      
-      // Snap to 5 minutes
-      droppedMinutes = Math.round(droppedMinutes / 5) * 5;
-      
-      const course = courses.find(c => c.id === data.id);
-      if (!course) return;
+    const courseId = e.dataTransfer.getData('text/plain');
+    if (!courseId) return;
 
-      const [sh, sm] = course.startTime.split(':').map(Number);
-      const [eh, em] = course.endTime.split(':').map(Number);
-      const duration = (eh * 60 + em) - (sh * 60 + sm);
+    const course = courses.find(c => c.id === courseId);
+    if (!course || course.locked) return;
 
-      const newStart = minutesToTime(droppedMinutes);
-      const newEnd = minutesToTime(droppedMinutes + duration);
-      
-      // If moving to a new teacher, update teacherId. If it was a coTeacher, switch them? Let's just override teacherId and clear coTeachers for simplicity if it changed columns
-      let newTeacherId = course.teacherId;
-      let newCoTeacherIds = course.coTeacherIds || [];
-      
-      if (course.teacherId !== teacherId && !newCoTeacherIds.includes(teacherId)) {
-          newTeacherId = teacherId;
-          newCoTeacherIds = [];
-      } else if (newCoTeacherIds.includes(teacherId)) {
-          // If dragged onto a co-teacher's column, maybe swap the main teacher?
-          newTeacherId = teacherId;
-          newCoTeacherIds = [course.teacherId, ...newCoTeacherIds.filter(id => id !== teacherId)];
-      }
-
-      // Only update if changed
-      if (course.dayOfWeek === dayId && course.teacherId === newTeacherId && course.startTime === newStart) return;
-
-      pushHistory();
-      await updateDoc(doc(db, "courses", course.id), {
-         dayOfWeek: dayId,
-         teacherId: newTeacherId,
-         coTeacherIds: newCoTeacherIds,
-         startTime: newStart,
-         endTime: newEnd,
-         updatedAt: new Date()
-      });
-    } catch(err) {}
-  };
-
-  const saveCourse = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!tId || (!isUnavail && !cId) || !addingCourse) return;
+    const rect = e.currentTarget.getBoundingClientRect();
+    const y = e.clientY - rect.top;
     
-    pushHistory();
-    const data = {
-        teacherId: tId,
-        coTeacherIds: isUnavail ? [] : coTIds,
-        classId: isUnavail ? "UNAVAILABLE" : cId,
-        facilityId: isUnavail ? null : (fId || null),
-        dayOfWeek: addingCourse.day,
-        startTime: startT,
-        endTime: endT,
-        weekType,
-        isUnavailability: isUnavail,
-        reason: isUnavail ? reason : null,
-    };
+    const duration = timeToMinutes(course.endTime) - timeToMinutes(course.startTime);
+    let startMins = TIME_START * 60 + Math.floor(y / PX_PER_MINUTE);
+    
+    // Snap to 5 mins
+    startMins = Math.round(startMins / 5) * 5;
+    const endMins = startMins + duration;
 
-    if (editingCourseId) {
-      await updateDoc(doc(db, "courses", editingCourseId), { ...data, updatedAt: new Date() });
-    } else {
-      await addDoc(collection(db, "courses"), { ...data, createdAt: new Date() });
-    }
-    setAddingCourse(null);
-    setEditingCourseId(null);
-  };
-
-  const removeCourse = async (id: string, e: React.MouseEvent) => {
-    e.stopPropagation();
-    if (confirm("Supprimer ce cours ?")) {
-      pushHistory();
-      await deleteDoc(doc(db, "courses", id));
-    }
+    try {
+      await updateDoc(doc(db, "courses", courseId), {
+        dayOfWeek: day,
+        teacherId: teacherId, // move to this teacher
+        startTime: formatTime(startMins),
+        endTime: formatTime(endMins)
+      });
+    } catch (err) {}
   };
 
   return (
-    <div className="flex flex-col h-full overflow-hidden schedule-container">
-      <header className="p-6 bg-white border-b border-slate-200 shrink-0 flex items-center justify-between no-print">
+    <div className="h-full flex flex-col bg-white">
+      <header className="bg-white border-b border-slate-200 px-6 py-4 flex justify-between items-center print:hidden">
         <div>
-          <h2 className="text-2xl font-bold text-slate-800 tracking-tight">Emploi du temps</h2>
-          <p className="text-slate-500 text-sm mt-1">Gérez le planning hebdomadaire. Cliquez sur un créneau pour ajouter un cours.</p>
+          <h1 className="text-2xl font-bold text-slate-800 tracking-tight">Emploi du temps</h1>
+          <p className="text-sm text-slate-500">Cliquez sur une case vide pour ajouter un cours. Glissez-déposez pour déplacer.</p>
         </div>
-        <div className="flex items-center gap-3">
-          {history.length > 0 && (
-            <div className="flex items-center gap-1 mr-2 no-print">
-              <button 
-                onClick={undo} 
-                disabled={historyIndex < 0}
-                className="px-3 py-1.5 bg-slate-100 hover:bg-slate-200 disabled:opacity-50 text-slate-700 rounded text-sm font-medium transition-colors"
-                title="Annuler (Ctrl+Z)"
-              >
-                Annuler
-              </button>
-              <button 
-                onClick={redo} 
-                disabled={historyIndex >= history.length - 1}
-                className="px-3 py-1.5 bg-slate-100 hover:bg-slate-200 disabled:opacity-50 text-slate-700 rounded text-sm font-medium transition-colors"
-                title="Rétablir (Ctrl+Y)"
-              >
-                Rétablir
-              </button>
-            </div>
-          )}
-          <button onClick={() => window.print()} className="flex items-center gap-2 bg-white border border-slate-300 text-slate-700 px-4 py-2 rounded-lg text-sm font-medium hover:bg-slate-50 transition-colors shadow-sm">
-              <Printer className="w-4 h-4" />
-              Imprimer (PDF)
-          </button>
-        </div>
+        <button onClick={() => window.print()} className="bg-white border border-slate-200 hover:bg-slate-50 text-slate-700 px-4 py-2 rounded-md font-medium flex items-center gap-2 shadow-sm">
+          <Printer className="w-4 h-4" /> Imprimer
+        </button>
       </header>
 
-      <div className="flex-1 overflow-auto bg-slate-100 p-6 flex gap-6 items-start print:overflow-visible print:flex print:h-auto print:bg-white print:p-0">
-        {/* Time axis */}
-        <div className="w-12 shrink-0 relative mt-16">
-          {/* Draw standard hour markers */}
-          {Array.from({ length: TIME_END - TIME_START + 1 }).map((_, i) => {
-            const hour = TIME_START + i;
-            if (hour === TIME_END) return null; // Don't draw the very last one at the exact bottom boundary
-            const timeStr = `${hour.toString().padStart(2, '0')}:00`;
-            const isBellTime = settings?.bellTimes?.includes(timeStr);
-            if (isBellTime) return null; // Will be drawn by bellTimes
-            
-            return (
-              <div key={`h-${i}`} className="absolute w-full text-right pr-2 text-[10px] text-slate-300 font-medium font-mono" style={{ top: i * 60 * PX_PER_MINUTE - 6 }}>
-                {timeStr}
-              </div>
-            );
-          })}
-          
-          {/* Draw bell times prominently */}
-          {Array.from(new Set([
-            ...(settings?.bellTimes || []), 
-            ...Array.from({ length: 12 }).map((_, h) => `${(h + 8).toString().padStart(2, '0')}:00`),
-            "18:30"
-          ].filter(Boolean))).sort((a, b) => String(a).localeCompare(String(b))).map((time, i) => {
-            if (typeof time !== 'string') return null;
-            if (time.endsWith(':00')) return null; // let standard hour markers handle it
-            const t = timeToMinutes(time) - TIME_START * 60;
-            if (t < 0) return null;
-            return (
-              <div key={i} className="absolute w-full text-right pr-2 text-[10px] text-slate-600 font-bold font-mono" style={{ top: t * PX_PER_MINUTE - 6 }}>
-                {time}
-              </div>
-            );
-          })}
-        </div>
-
-        {/* Days Grid */}
-        <div className="flex flex-auto shrink-0 min-w-[1200px] border border-slate-200 bg-white rounded-xl overflow-hidden shadow-sm divide-x divide-slate-100">
-          {DAYS.map((day, dIdx) => (
-            <div key={day} className="flex-1 flex flex-col min-w-[200px]">
-              <div className="h-8 border-b border-slate-200 flex items-center justify-center bg-slate-100 font-bold text-sm text-slate-700 uppercase tracking-wider">
+      <div className="flex-1 overflow-auto bg-slate-50 p-6 print:overflow-visible print:bg-white print:p-0 print:block">
+        <div className="flex flex-col gap-8 print:block">
+          {DAYS.map(day => (
+            <div key={day} className="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden print:mb-8 print:shadow-none print:border-none print:break-inside-avoid">
+              <div className="bg-slate-800 text-white px-4 py-2 font-bold text-lg text-center print:bg-slate-200 print:text-black">
                 {day}
               </div>
               
-              <div className="flex flex-1 divide-x divide-slate-100">
-                {teachers.length === 0 ? (
-                  <div className="flex-1 bg-slate-50/20 p-4 text-center text-xs text-slate-400 italic">Ajoutez des professeurs dans Paramètres</div>
-                ) : teachers.map((teacher) => {
-                  const teacherCourses = courses.filter(c => (c.teacherId === teacher.id || c.coTeacherIds?.includes(teacher.id)) && !c.isUnavailability);
-                  const totalMins = teacherCourses.reduce((acc, c) => {
-                     const [sh, sm] = c.startTime.split(':').map(Number);
-                     const [eh, em] = c.endTime.split(':').map(Number);
-                     const mins = (eh * 60 + em) - (sh * 60 + sm);
-                     // If it's week A or B, it's half an hour per week on average
-                     const factor = c.weekType && c.weekType !== 'ALL' ? 0.5 : 1;
-                     return acc + (mins * factor);
-                  }, 0);
-                  const totalHours = totalMins / 60;
-                  const targetHours = teacher.targetHours || 20;
+              <div className="flex items-stretch overflow-x-auto min-w-full">
+                {/* Timeline axis */}
+                <div className="w-16 shrink-0 border-r border-slate-200 bg-white relative print:hidden">
+                   <div className="h-10 border-b border-slate-200"></div> {/* Header spacer */}
+                   <div className="relative" style={{ height: (TIME_END - TIME_START) * 60 * PX_PER_MINUTE }}>
+                     {Array.from({ length: TIME_END - TIME_START + 1 }).map((_, i) => (
+                       <div key={i} className="absolute w-full text-right pr-2 text-xs text-slate-400 font-medium transform -translate-y-1/2" style={{ top: i * 60 * PX_PER_MINUTE }}>
+                         {TIME_START + i}h00
+                       </div>
+                     ))}
+                   </div>
+                </div>
+
+                {/* Teachers Columns */}
+                {teachers.map(teacher => {
+                  const dayCourses = courses.filter(c => c.dayOfWeek === day && (c.teacherId === teacher.id || c.coTeacherIds?.includes(teacher.id)));
+                  const totalHours = courses
+                    .filter(c => !c.isUnavailability && (c.teacherId === teacher.id || c.coTeacherIds?.includes(teacher.id)))
+                    .reduce((acc, c) => acc + (timeToMinutes(c.endTime) - timeToMinutes(c.startTime)) / 60, 0);
 
                   return (
-                  <div key={teacher.id} className="flex-1 flex flex-col min-w-[80px]">
-                    <div 
-                      className="h-14 border-b border-slate-200 flex flex-col items-center justify-center text-xs font-semibold text-white px-1 print:h-10"
-                      style={{ backgroundColor: teacher.color }}
-                      title={teacher.name}
-                    >
-                      <span className="truncate w-full text-center leading-tight">{teacher.name}</span>
-                      <span className="text-[9px] font-bold opacity-80 leading-tight print:hidden">[{totalHours.toFixed(1)}h / {targetHours}h]</span>
-                      
-                      <button 
-                        onClick={() => {
-                          setTId(teacher.id);
-                          handleAddClick(day, "08:00", "09:00");
-                        }}
-                        className="mt-0.5 bg-white/20 hover:bg-white/30 text-white rounded px-2 py-0.5 flex items-center gap-1 text-[9px] transition-colors print:hidden"
+                    <div key={teacher.id} className="flex-1 min-w-[150px] border-r border-slate-200 last:border-r-0 relative flex flex-col">
+                      {/* Teacher Header */}
+                      <div className="h-12 border-b border-slate-200 flex flex-col items-center justify-center font-bold text-sm text-white sticky top-0 z-20 print:text-black print:border" style={{ backgroundColor: teacher.color || '#334155' }}>
+                        <span className="leading-tight">{teacher.name}</span>
+                        {teacher.targetHours && (
+                          <span className="text-[9px] opacity-80 print:hidden font-mono mt-0.5" title="Heures planifiées / Objectif">
+                            [{totalHours.toFixed(1)}h / {teacher.targetHours}h]
+                          </span>
+                        )}
+                      </div>
+
+                      {/* Interactive Grid Area */}
+                      <div 
+                        className="relative flex-1 bg-white hover:bg-slate-50/50 transition-colors cursor-crosshair group print:border"
+                        style={{ height: (TIME_END - TIME_START) * 60 * PX_PER_MINUTE }}
+                        onClick={(e) => handleBackgroundClick(e, day, teacher.id)}
+                        onDragOver={(e) => { e.preventDefault(); e.dataTransfer.dropEffect = 'move'; }}
+                        onDrop={(e) => handleDrop(e, day, teacher.id)}
                       >
-                        <Plus className="w-2.5 h-2.5" /> Ajouter
-                      </button>
-                    </div>
-                    
-                    <div 
-                      className="relative flex-1 bg-slate-50/20 shadow-inner group/col" 
-                      style={{ height: (TIME_END - TIME_START) * 60 * PX_PER_MINUTE }}
-                      onDragOver={(e) => { e.preventDefault(); e.dataTransfer.dropEffect = 'move'; }}
-                      onDrop={(e) => handleDrop(e, day, teacher.id)}
-                      onMouseDown={(e) => {
-                         if (e.target !== e.currentTarget) return; // Only process if the user clicks directly on the background
-                         const rect = e.currentTarget.getBoundingClientRect();
-                         const y = e.clientY - rect.top;
-                         const startMins = Math.floor(y / PX_PER_MINUTE);
-                         // Snap to 15 min or 5 min? Let's snap to closest 15 mins for start
-                         const snappedStart = Math.floor(startMins / 15) * 15;
-                         
-                         setDraftCourse({
-                            day,
-                            teacherId: teacher.id,
-                            startMins: snappedStart,
-                            endMins: snappedStart + 30, // 30 min initial default length
-                            initialY: e.clientY
-                         });
-                      }}
-                    >
-                      {/* Standard hourly grid lines */}
-                      {Array.from({ length: TIME_END - TIME_START + 1 }).map((_, i) => {
-                          const hour = TIME_START + i;
-                          if (hour === TIME_END) return null;
-                          return <div key={`grid-h-${i}`} className="absolute w-full border-t border-slate-200 pointer-events-none" style={{ top: i * 60 * PX_PER_MINUTE, zIndex: 5 }} />
-                      })}
+                        {/* Drop Hint */}
+                        <div className="absolute inset-0 hidden group-hover:block pointer-events-none bg-blue-50/20 z-0"></div>
 
-                      {/* Bell times grid lines */}
-                      {Array.from(new Set([
-                        ...(settings?.bellTimes || []), 
-                        ...Array.from({ length: 12 }).map((_, h) => `${(h + 8).toString().padStart(2, '0')}:00`),
-                        "18:30"
-                      ].filter(Boolean))).sort((a, b) => String(a).localeCompare(String(b))).map((time, i) => {
-                         if (typeof time !== 'string' || time.endsWith(':00')) return null; // Avoid overlapping with standard hours
-                         const t = timeToMinutes(time) - TIME_START * 60;
-                         if (t < 0) return null;
-                         return <div key={i} className="absolute w-full border-t border-slate-300 border-dashed pointer-events-none" style={{ top: t * PX_PER_MINUTE, zIndex: 5 }} />
-                      })}
+                        {/* Grid lines 1 hr */}
+                        {Array.from({ length: TIME_END - TIME_START + 1 }).map((_, i) => (
+                          <div key={i} className="absolute w-full border-t border-slate-100 pointer-events-none" style={{ top: i * 60 * PX_PER_MINUTE }} />
+                        ))}
+                        {/* Grid lines 30 mins */}
+                        {Array.from({ length: TIME_END - TIME_START }).map((_, i) => (
+                          <div key={i} className="absolute w-full border-t border-slate-50 border-dashed pointer-events-none" style={{ top: (i * 60 + 30) * PX_PER_MINUTE }} />
+                        ))}
 
-                      {/* Recess & Lunch Blocks background */}
-                      {settings?.recessTimes?.map(r => {
-                        const s = timeToMinutes(r.start) - TIME_START * 60;
-                        const duration = timeToMinutes(r.end) - timeToMinutes(r.start);
-                        if (s < 0) return null;
-                        return <div key={r.id || r.start} className="absolute w-full bg-pink-100/70 border-y border-pink-200 flex flex-col items-center justify-center pointer-events-none overflow-hidden" style={{ top: s * PX_PER_MINUTE, height: duration * PX_PER_MINUTE, zIndex: 14 }}><span className="text-[10px] text-pink-600 font-bold uppercase tracking-widest opacity-80 truncate w-full text-center">{r.name || 'Récré'}</span></div>;
-                      })}
-                      {settings?.lunchBreak && (
-                        (() => {
-                          const s = timeToMinutes(settings.lunchBreak.start) - TIME_START * 60;
-                          const duration = timeToMinutes(settings.lunchBreak.end) - timeToMinutes(settings.lunchBreak.start);
+                        {/* Recess backgrounds */}
+                        {settings?.recessTimes?.map(r => {
+                          const s = timeToMinutes(r.start) - TIME_START * 60;
+                          const dur = timeToMinutes(r.end) - timeToMinutes(r.start);
                           if (s < 0) return null;
-                          return <div className="absolute w-full bg-amber-100/70 border-y border-amber-200 flex flex-col items-center justify-center pointer-events-none overflow-hidden" style={{ top: s * PX_PER_MINUTE, height: duration * PX_PER_MINUTE, zIndex: 14 }}><span className="text-[10px] text-amber-700 font-bold uppercase tracking-widest opacity-80 truncate w-full text-center">Pause Midi</span></div>;
-                        })()
-                      )}
+                          return <div key={r.id} className="absolute w-full flex items-center justify-center bg-pink-50 border-y border-pink-100 pointer-events-none z-0" style={{ top: s * PX_PER_MINUTE, height: dur * PX_PER_MINUTE }}><span className="text-[10px] uppercase font-bold text-pink-400">{r.name}</span></div>;
+                        })}
 
-                      {/* Draft Course */}
-                      {draftCourse && draftCourse.day === day && draftCourse.teacherId === teacher.id && (
-                        <div 
-                          className="absolute w-full bg-blue-500/20 border-2 border-blue-500 border-dashed rounded z-30 pointer-events-none drop-shadow-sm flex items-center justify-center print:hidden"
-                          style={{
-                             top: draftCourse.startMins * PX_PER_MINUTE,
-                             height: (draftCourse.endMins - draftCourse.startMins) * PX_PER_MINUTE,
-                          }}
-                        >
-                           <span className="text-xs font-bold text-blue-700 bg-white/80 px-1 rounded shadow-sm">
-                             {Math.floor(draftCourse.startMins / 60) + TIME_START}:{String(draftCourse.startMins % 60).padStart(2,'0')} - {Math.floor(draftCourse.endMins / 60) + TIME_START}:{String(draftCourse.endMins % 60).padStart(2,'0')}
-                           </span>
-                        </div>
-                      )}
+                        {/* Lunch background */}
+                        {settings?.lunchBreak && (() => {
+                          const s = timeToMinutes(settings.lunchBreak.start) - TIME_START * 60;
+                          const dur = timeToMinutes(settings.lunchBreak.end) - timeToMinutes(settings.lunchBreak.start);
+                          if (s < 0) return null;
+                          return <div className="absolute w-full flex items-center justify-center bg-amber-50 pointer-events-none z-0" style={{ top: s * PX_PER_MINUTE, height: dur * PX_PER_MINUTE }}><span className="text-[10px] uppercase font-bold text-amber-500 text-center uppercase tracking-widest break-words w-full">Pause</span></div>;
+                        })()}
 
-                      {/* Placed Courses */}
-                      {courses.filter(c => c.dayOfWeek === day && (c.teacherId === teacher.id || c.coTeacherIds?.includes(teacher.id))).map(course => {
-                        const tClass = classes.find(c => c.id === course.classId);
-                        const tFac = facilities.find(f => f.id === course.facilityId);
-                        
-                        const startMin = timeToMinutes(course.startTime) - TIME_START * 60;
-                        const durMin = timeToMinutes(course.endTime) - timeToMinutes(course.startTime);
-                        
-                        const wType = course.weekType || 'ALL';
-                        const isHalf = wType !== 'ALL';
-                        const isLeft = wType === 'A';
-                        
-                        const isUnavail = course.isUnavailability;
-                        
-                        const endMinToUse = optimisticEnd[course.id] ? timeToMinutes(optimisticEnd[course.id]) - TIME_START * 60 : durMin + startMin;
-                        const optimisticDurMin = endMinToUse - startMin;
+                        {/* Courses */}
+                        {dayCourses.map(course => {
+                          const startMins = timeToMinutes(course.startTime) - TIME_START * 60;
+                          const dur = timeToMinutes(course.endTime) - timeToMinutes(course.startTime);
+                          const tClass = classes.find(c => c.id === course.classId);
+                          const fac = facilities.find(f => f.id === course.facilityId);
 
-                        if (isUnavail) {
-                            return (
-                              <div
-                                key={course.id}
-                                draggable={!course.locked}
-                                onDragStart={(e) => handleDragStart(e, course)}
-                                className={`absolute rounded p-1.5 shadow-sm border border-slate-400 overflow-hidden group hover:z-30 hover:shadow-md transition-shadow ${course.locked ? 'cursor-default' : 'cursor-grab active:cursor-grabbing'} ${isHalf ? (isLeft ? 'left-0.5 right-1/2' : 'left-1/2 right-0.5') : 'left-0.5 right-0.5'}`}
-                                style={{
-                                  top: startMin * PX_PER_MINUTE + 1,
-                                  height: Math.max(10, optimisticDurMin * PX_PER_MINUTE - 2),
-                                  backgroundColor: '#cbd5e1',
-                                  backgroundImage: 'repeating-linear-gradient(45deg, transparent, transparent 5px, rgba(255,255,255,.5) 5px, rgba(255,255,255,.5) 10px)',
-                                  color: '#334155',
-                                  zIndex: 15
-                                }}
-                                onClick={() => {
-                                  if (course.locked) return;
-                                  setAddingCourse({ day: course.dayOfWeek, time: course.startTime });
-                                  setStartT(course.startTime);
-                                  setEndT(course.endTime);
-                                  setTId(course.teacherId);
-                                  setCoTIds(course.coTeacherIds || []);
-                                  setIsUnavail(true);
-                                  setReason(course.reason || "");
-                                  setWeekType(course.weekType || 'ALL');
-                                  setEditingCourseId(course.id);
-                                }}
-                              >
-                                <div className="relative z-10 flex flex-col h-full items-center justify-center text-center">
-                                  <div className="absolute top-0 right-0 flex gap-1 bg-white/80 rounded px-1 mt-0.5 mr-0.5 opacity-0 group-hover:opacity-100 transition-opacity">
-                                    <button onClick={(e) => toggleLock(course.id, !!course.locked, e)} className="text-slate-600 hover:text-slate-900"><Lock className="w-3 h-3" /></button>
-                                    {!course.locked && <button onClick={(e) => removeCourse(course.id, e)} className="text-red-500 hover:text-red-700"><Trash2 className="w-3 h-3" /></button>}
-                                  </div>
-                                  <span className="font-bold text-[10px] uppercase tracking-wider">{course.reason || 'Indisponible'}</span>
-                                  {isHalf && <span className="text-[8px] font-bold opacity-90 mt-0.5 bg-white/50 inline-block px-1 rounded-sm">Sem. {wType}</span>}
+                          const isUnavail = course.isUnavailability;
+
+                          return (
+                            <div
+                              key={course.id}
+                              draggable={!course.locked}
+                              onDragStart={(e) => handleDragStart(e, course)}
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                setModalData(course as any);
+                              }}
+                              className={`absolute left-0.5 right-0.5 rounded p-1.5 shadow-sm border overflow-hidden group hover:z-30 hover:shadow-md transition-shadow ${course.locked ? 'cursor-default' : 'cursor-grab active:cursor-grabbing'}`}
+                              style={{
+                                top: startMins * PX_PER_MINUTE + 1,
+                                height: Math.max(15, dur * PX_PER_MINUTE - 2),
+                                backgroundColor: isUnavail ? '#e2e8f0' : (tClass?.color || '#cbd5e1'),
+                                border: isUnavail ? '1px dashed #94a3b8' : '1px solid rgba(0,0,0,0.1)',
+                                color: isUnavail ? '#4f46e5' : '#fff',
+                                zIndex: 10,
+                                opacity: course.locked ? 0.9 : 1
+                              }}
+                            >
+                              {/* Content */}
+                              <div className="flex flex-col h-full relative z-10 pointer-events-none">
+                                <div className="flex justify-between items-start">
+                                  <span className="text-[10px] font-mono font-bold leading-none drop-shadow-sm text-white/90">{course.startTime}-{course.endTime}</span>
                                 </div>
-                                {!course.locked && (
-                                  <div 
-                                    className="absolute bottom-0 left-0 w-full h-2 cursor-ns-resize z-50 hover:bg-black/20"
-                                    onMouseDown={(e) => {
-                                      e.stopPropagation();
-                                      setResizingCourse({ id: course.id, initialY: e.clientY, initialEndMins: timeToMinutes(course.endTime) });
-                                    }}
-                                  />
+                                
+                                {isUnavail ? (
+                                  <div className="flex-1 flex items-center justify-center mt-0.5">
+                                    <span className="font-bold text-[10px] uppercase text-slate-600 text-center break-words leading-tight">{course.reason || "Indisponible"}</span>
+                                  </div>
+                                ) : (
+                                  <div className="mt-0.5 flex-1 flex flex-col items-center justify-center text-center">
+                                    <span className="font-bold text-xs drop-shadow-md leading-tight">{tClass?.name || '???'}</span>
+                                    {fac && <span className="text-[9px] font-medium opacity-90 mt-0.5 px-1 bg-black/20 rounded drop-shadow-sm">{fac.name}</span>}
+                                  </div>
                                 )}
                               </div>
-                            );
-                        }
-
-                        return (
-                          <div
-                            key={course.id}
-                            draggable={!course.locked}
-                            onDragStart={(e) => handleDragStart(e, course)}
-                            className={`absolute rounded p-1.5 shadow-sm border border-slate-900/10 overflow-hidden group hover:z-30 hover:shadow-md transition-shadow ${course.locked ? 'cursor-default' : 'cursor-grab active:cursor-grabbing'} ${isHalf ? (isLeft ? 'left-0.5 right-1/2' : 'left-1/2 right-0.5') : 'left-0.5 right-0.5'}`}
-                            style={{
-                              top: startMin * PX_PER_MINUTE + 1,
-                              height: Math.max(10, optimisticDurMin * PX_PER_MINUTE - 2),
-                              backgroundColor: tClass?.color || '#e2e8f0',
-                              color: tClass?.color ? '#fff' : '#334155',
-                              zIndex: 20,
-                              opacity: course.locked ? 0.9 : 1
-                            }}
-                            onClick={() => {
-                              if (course.locked) return;
-                              setAddingCourse({ day: course.dayOfWeek, time: course.startTime });
-                              setStartT(course.startTime);
-                              setEndT(course.endTime);
-                              setTId(course.teacherId);
-                              setCoTIds(course.coTeacherIds || []);
-                              setCId(course.classId);
-                              setFId(course.facilityId || "");
-                              setWeekType(course.weekType || 'ALL');
-                              setIsUnavail(false);
-                              setEditingCourseId(course.id);
-                            }}
-                          >
-                            <div className="absolute inset-0 bg-black/10 mix-blend-multiply pointer-events-none" />
-                            
-                            <div className="relative z-10 flex flex-col h-full">
-                              <div className="flex justify-between items-start">
-                                <span className="text-[9px] font-mono font-bold opacity-90 leading-none">{course.startTime} - {optimisticEnd[course.id] || course.endTime}</span>
-                                <div className="flex gap-1 bg-black/20 rounded px-1 opacity-0 group-hover:opacity-100 transition-opacity">
-                                    <button onClick={(e) => toggleLock(course.id, !!course.locked, e)} className="text-white/80 hover:text-white mt-0.5 mb-0.5">
-                                        {course.locked ? <Lock className="w-2.5 h-2.5" /> : <LockOpen className="w-2.5 h-2.5" />}
-                                    </button>
-                                    {!course.locked && <button onClick={(e) => removeCourse(course.id, e)} className="text-white/80 hover:text-red-300 mt-0.5 mb-0.5"><Trash2 className="w-2.5 h-2.5" /></button>}
-                                </div>
+                              
+                              {/* Controls */}
+                              <div className="absolute top-1 right-1 flex flex-col gap-1 opacity-0 group-hover:opacity-100 transition-opacity z-20 print:hidden">
+                                <button onClick={(e) => toggleLock(course, e)} className="p-1 bg-black/20 hover:bg-black/30 rounded backdrop-blur-sm shadow-sm transition-colors text-white">
+                                  {course.locked ? <Lock className="w-3 h-3 text-red-100" /> : <LockOpen className="w-3 h-3" />}
+                                </button>
+                                <button onClick={(e) => deleteCourse(course.id, e)} className="p-1 bg-black/20 hover:bg-black/30 rounded backdrop-blur-sm shadow-sm transition-colors text-white">
+                                  <Trash2 className="w-3 h-3 text-red-100" />
+                                </button>
                               </div>
-                              <div className="font-bold text-xs tracking-tight leading-none mt-1 truncate">{tClass?.name || '?'}</div>
-                              {isHalf && <div className="text-[8px] font-bold opacity-90 mt-0.5 bg-white/20 inline-block px-1 rounded-sm w-max">Sem. {wType}</div>}
-                              {tFac && (
-                                <div className="mt-auto text-[8px] uppercase font-bold tracking-wider opacity-90 pt-0.5 border-t border-white/20 truncate">
-                                  {tFac.name} {course.coTeacherIds && course.coTeacherIds.length > 0 && '(Co-Ens.)'}
-                                </div>
-                              )}
-                              {!tFac && course.coTeacherIds && course.coTeacherIds.length > 0 && (
-                                <div className="mt-auto text-[8px] uppercase font-bold tracking-wider opacity-90 pt-0.5 border-t border-white/20 truncate">
-                                  (Co-Ens.)
-                                </div>
-                              )}
                             </div>
-                            {!course.locked && (
-                                <div 
-                                  className="absolute bottom-0 left-0 w-full h-2 cursor-ns-resize z-50 hover:bg-black/20"
-                                  onMouseDown={(e) => {
-                                    e.stopPropagation();
-                                    setResizingCourse({ id: course.id, initialY: e.clientY, initialEndMins: timeToMinutes(course.endTime) });
-                                  }}
-                                />
-                            )}
-                          </div>
-                        );
-                      })}
+                          );
+                        })}
+                      </div>
                     </div>
-                  </div>
                   );
                 })}
               </div>
@@ -643,115 +294,65 @@ export default function Schedule() {
         </div>
       </div>
 
-      {/* Legend (Visible only on print, or minimally at bottom) */}
-      <div className="hidden print:block mt-8 text-sm p-4 border-t border-slate-300">
-         <h4 className="font-bold mb-2">Légende</h4>
-         <div className="flex flex-wrap gap-4">
-            {classes.map(c => (
-              <div key={c.id} className="flex items-center gap-2">
-                 <div className="w-4 h-4 rounded" style={{ backgroundColor: c.color }} />
-                 <span>{c.name}</span>
-              </div>
-            ))}
-            <div className="flex items-center gap-2">
-                 <div className="w-4 h-4 rounded" style={{ backgroundColor: '#cbd5e1', backgroundImage: 'repeating-linear-gradient(45deg, transparent, transparent 3px, rgba(255,255,255,.5) 3px, rgba(255,255,255,.5) 6px)' }} />
-                 <span>Indisponibilité / Réunion</span>
-            </div>
-         </div>
-      </div>
-
-      {/* Add Course Modal */}
-      {addingCourse && (
-        <div className="fixed inset-0 bg-slate-900/40 backdrop-blur-sm flex items-center justify-center z-50 p-4">
+      {modalData && (
+        <div className="fixed inset-0 bg-slate-900/40 backdrop-blur-sm flex items-center justify-center z-50 p-4 shrink-0">
           <div className="bg-white rounded-xl shadow-xl w-full max-w-sm overflow-hidden border border-slate-200">
             <div className="px-6 py-4 border-b border-slate-100 bg-slate-50 flex justify-between items-center">
-              <h3 className="font-bold text-slate-800">Nouveau cours — {addingCourse.day}</h3>
+              <h3 className="font-bold text-slate-800">{modalData.id ? 'Modifier le créneau' : 'Nouveau créneau'}</h3>
             </div>
+            
+            <div className="bg-slate-100 px-6 py-2 flex gap-2 border-b border-slate-200">
+              <button 
+                type="button"
+                className={`flex-1 text-xs py-1.5 rounded font-semibold ${!modalData.isUnavailability ? 'bg-white shadow text-slate-800' : 'text-slate-500 hover:bg-slate-200'}`}
+                onClick={() => setModalData({...modalData, isUnavailability: false})}
+              >Cours</button>
+              <button 
+                type="button"
+                className={`flex-1 text-xs py-1.5 rounded font-semibold ${modalData.isUnavailability ? 'bg-white shadow text-red-600' : 'text-slate-500 hover:bg-slate-200'}`}
+                onClick={() => setModalData({...modalData, isUnavailability: true})}
+              >Indisponibilité</button>
+            </div>
+
             <form onSubmit={saveCourse} className="p-6 space-y-4">
-              <div className="flex bg-slate-100 p-1 rounded-md mb-2">
-                <button type="button" onClick={() => setIsUnavail(false)} className={`flex-1 text-xs font-semibold py-1.5 rounded transition-colors ${!isUnavail ? 'bg-white shadow-sm text-slate-800' : 'text-slate-500 hover:text-slate-700'}`}>Cours</button>
-                <button type="button" onClick={() => setIsUnavail(true)} className={`flex-1 text-xs font-semibold py-1.5 rounded transition-colors ${isUnavail ? 'bg-white shadow-sm text-red-600' : 'text-slate-500 hover:text-slate-700'}`}>Indisponibilité</button>
-              </div>
-
               <div className="grid grid-cols-2 gap-4">
-                <div className="space-y-1">
-                  <label className="text-xs font-medium text-slate-600">Début</label>
-                  <input type="time" value={startT} onChange={e=>setStartT(e.target.value)} required className="form-input w-full text-sm rounded-md border-slate-300 font-mono" />
+                <div>
+                  <label className="block text-xs font-semibold text-slate-600 mb-1">Début</label>
+                  <input type="time" required value={modalData.startTime} onChange={e => setModalData({...modalData, startTime: e.target.value})} className="form-input w-full text-sm rounded-md border-slate-300" />
                 </div>
-                <div className="space-y-1">
-                  <label className="text-xs font-medium text-slate-600">Fin</label>
-                  <input type="time" value={endT} onChange={e=>setEndT(e.target.value)} required className="form-input w-full text-sm rounded-md border-slate-300 font-mono" />
+                <div>
+                  <label className="block text-xs font-semibold text-slate-600 mb-1">Fin</label>
+                  <input type="time" required value={modalData.endTime} onChange={e => setModalData({...modalData, endTime: e.target.value})} className="form-input w-full text-sm rounded-md border-slate-300" />
                 </div>
               </div>
 
-              {/* Quick Durations */}
-              <div className="flex flex-wrap gap-1.5 pt-1">
-                 {[30, 45, 55, 90, 110].map(mins => (
-                   <button key={mins} type="button" onClick={() => setDuration(mins)} className="px-2 py-1 bg-slate-100 text-slate-600 hover:bg-slate-200 rounded text-xs font-medium">+{mins}m</button>
-                 ))}
-              </div>
-
-              <div className="space-y-1 pt-1">
-                <label className="text-xs font-medium text-slate-600">Professeur</label>
-                <select value={tId} onChange={e=>setTId(e.target.value)} required className="form-select w-full text-sm rounded-md border-slate-300 bg-white">
-                  <option value="">-- Choisir --</option>
-                  {teachers.map(t => <option key={t.id} value={t.id}>{t.name}</option>)}
-                </select>
-              </div>
-
-              {!isUnavail ? (
+              {!modalData.isUnavailability ? (
                 <>
-                  <div className="space-y-1">
-                    <label className="text-xs font-medium text-slate-600">Co-enseignants (Optionnel)</label>
-                    <select multiple value={coTIds} onChange={e => setCoTIds(Array.from(e.target.selectedOptions, (option: HTMLOptionElement) => option.value))} className="form-select w-full text-sm rounded-md border-slate-300 bg-white h-20">
-                      {teachers.filter(t => t.id !== tId).map(t => <option key={t.id} value={t.id}>{t.name}</option>)}
-                    </select>
-                  </div>
-                  {/* Week Parity */}
-                  <div className="space-y-1">
-                    <label className="text-xs font-medium text-slate-600">Périodicité</label>
-                    <div className="flex gap-2">
-                      <label className={`flex-1 flex items-center justify-center gap-1.5 py-1.5 rounded border text-sm font-medium cursor-pointer transition-colors ${weekType === 'ALL' ? 'bg-blue-50 border-blue-200 text-blue-700' : 'bg-white border-slate-200 text-slate-600 hover:bg-slate-50'}`}>
-                        <input type="radio" name="wType" value="ALL" checked={weekType === 'ALL'} onChange={() => setWeekType('ALL')} className="hidden" />
-                        Toutes
-                      </label>
-                      <label className={`flex-1 flex items-center justify-center gap-1.5 py-1.5 rounded border text-sm font-medium cursor-pointer transition-colors ${weekType === 'A' ? 'bg-purple-50 border-purple-200 text-purple-700' : 'bg-white border-slate-200 text-slate-600 hover:bg-slate-50'}`}>
-                        <input type="radio" name="wType" value="A" checked={weekType === 'A'} onChange={() => setWeekType('A')} className="hidden" />
-                        Sem. A
-                      </label>
-                      <label className={`flex-1 flex items-center justify-center gap-1.5 py-1.5 rounded border text-sm font-medium cursor-pointer transition-colors ${weekType === 'B' ? 'bg-emerald-50 border-emerald-200 text-emerald-700' : 'bg-white border-slate-200 text-slate-600 hover:bg-slate-50'}`}>
-                        <input type="radio" name="wType" value="B" checked={weekType === 'B'} onChange={() => setWeekType('B')} className="hidden" />
-                        Sem. B
-                      </label>
-                    </div>
-                  </div>
-
-                  <div className="space-y-1">
-                    <label className="text-xs font-medium text-slate-600">Classe</label>
-                    <select value={cId} onChange={e=>setCId(e.target.value)} required={!isUnavail} className="form-select w-full text-sm rounded-md border-slate-300 bg-white">
-                      <option value="">-- Choisir --</option>
+                  <div>
+                    <label className="block text-xs font-semibold text-slate-600 mb-1">Classe</label>
+                    <select required value={modalData.classId} onChange={e => setModalData({...modalData, classId: e.target.value})} className="form-select w-full text-sm rounded-md border-slate-300">
+                      <option value="">Sélectionner une classe</option>
                       {classes.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
                     </select>
                   </div>
-
-                  <div className="space-y-1">
-                    <label className="text-xs font-medium text-slate-600">Installation (Lieu)</label>
-                    <select value={fId} onChange={e=>setFId(e.target.value)} className="form-select w-full text-sm rounded-md border-slate-300 bg-white">
-                      <option value="">-- Non défini --</option>
+                  <div>
+                    <label className="block text-xs font-semibold text-slate-600 mb-1">Salle (Optionnel)</label>
+                    <select value={modalData.facilityId} onChange={e => setModalData({...modalData, facilityId: e.target.value})} className="form-select w-full text-sm rounded-md border-slate-300">
+                      <option value="">Aucune salle</option>
                       {facilities.map(f => <option key={f.id} value={f.id}>{f.name}</option>)}
                     </select>
                   </div>
                 </>
               ) : (
-                <div className="space-y-1">
-                  <label className="text-xs font-medium text-slate-600">Motif</label>
-                  <input type="text" value={reason} onChange={e=>setReason(e.target.value)} placeholder="Ex: Décharge de coordination, Réunion..." required={isUnavail} className="form-input w-full text-sm rounded-md border-slate-300" />
+                <div>
+                  <label className="block text-xs font-semibold text-slate-600 mb-1">Motif</label>
+                  <input type="text" placeholder="Ex: Réunion, Formation..." value={modalData.reason || ''} onChange={e => setModalData({...modalData, reason: e.target.value})} className="form-input w-full text-sm rounded-md border-slate-300" />
                 </div>
               )}
-              
-              <div className="pt-4 flex gap-3">
-                <button type="button" onClick={() => setAddingCourse(null)} className="flex-1 bg-white border border-slate-300 text-slate-700 py-2 rounded-md font-medium text-sm hover:bg-slate-50">Annuler</button>
-                <button type="submit" className="flex-1 bg-blue-600 text-white py-2 rounded-md font-medium text-sm hover:bg-blue-700 shadow-sm">Enregistrer</button>
+
+              <div className="flex gap-2 pt-4 border-t border-slate-100">
+                <button type="button" onClick={() => setModalData(null)} className="flex-1 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-lg font-medium transition-colors text-sm">Annuler</button>
+                <button type="submit" className="flex-1 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg font-medium transition-colors text-sm">Enregistrer</button>
               </div>
             </form>
           </div>
