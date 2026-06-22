@@ -334,13 +334,13 @@ export default function Activities() {
   };
 
   return (
-    <div className="p-8 max-w-5xl mx-auto space-y-12">
-      <div>
+    <div className={`p-8 max-w-5xl mx-auto space-y-12 ${isPrintingRange ? 'print:p-0 print:space-y-0 print:max-w-none print:m-0' : ''}`}>
+      <div className={isPrintingRange ? 'print:hidden' : ''}>
         <h2 className="text-2xl font-bold text-slate-800 tracking-tight">Activités & Absences</h2>
         <p className="text-slate-500 text-sm mt-1">Définissez les activités, temps de cycle, installations pour la répartition automatique.</p>
       </div>
 
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+      <div className={`grid grid-cols-1 md:grid-cols-2 gap-6 ${isPrintingRange ? 'print:hidden' : ''}`}>
         
         {/* Activities */}
         <section className="bg-white p-6 rounded-xl border border-slate-200 shadow-sm">

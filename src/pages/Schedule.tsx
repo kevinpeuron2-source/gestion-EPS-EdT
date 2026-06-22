@@ -18,12 +18,21 @@ export default function Schedule() {
   const { teachers, classes, facilities, courses } = useStore();
   const [showPrintModal, setShowPrintModal] = useState(false);
   const [printMode, setPrintMode] = useState<'global' | 'teachers' | null>(null);
+  const [selectingTeachers, setSelectingTeachers] = useState(false);
+  const [selectedTeachersForPrint, setSelectedTeachersForPrint] = useState<string[]>([]);
 
   const pxPerMinute = printMode ? 1.0 : PX_PER_MINUTE; // Scale down vertically for print to fit A4 Landscape
+
+  const handleOpenPrintModal = () => {
+    setSelectedTeachersForPrint(teachers.map(t => t.id));
+    setSelectingTeachers(false);
+    setShowPrintModal(true);
+  };
 
   const executePrint = (mode: 'global' | 'teachers') => {
     setPrintMode(mode);
     setShowPrintModal(false);
+    setSelectingTeachers(false);
     setTimeout(() => {
       const style = document.createElement('style');
       style.innerHTML = `
@@ -50,7 +59,7 @@ export default function Schedule() {
           <h1 className="text-2xl font-bold text-slate-800 tracking-tight">Emploi du temps global</h1>
           <p className="text-sm text-slate-500">Vue de l'emploi du temps par jour et par enseignant.</p>
         </div>
-        <button onClick={() => setShowPrintModal(true)} className="bg-white border border-slate-200 hover:bg-slate-50 text-slate-700 px-4 py-2 rounded-md font-medium flex items-center gap-2 shadow-sm transition-colors">
+        <button onClick={handleOpenPrintModal} className="bg-white border border-slate-200 hover:bg-slate-50 text-slate-700 px-4 py-2 rounded-md font-medium flex items-center gap-2 shadow-sm transition-colors">
           <Printer className="w-4 h-4" /> Imprimer (Paysage)
         </button>
       </header>
@@ -148,28 +157,60 @@ export default function Schedule() {
               <h3 className="font-bold text-slate-800">Options d'impression</h3>
             </div>
             <div className="p-6 flex flex-col gap-3">
-              <button onClick={() => executePrint('global')} className="flex items-center gap-3 p-4 rounded-lg border border-slate-200 hover:border-blue-500 hover:bg-blue-50 transition-colors text-left group">
-                <div className="bg-slate-100 p-2 rounded-md group-hover:bg-blue-100 group-hover:text-blue-600 transition-colors text-slate-600">
-                  <Users className="w-5 h-5" />
+              {!selectingTeachers ? (
+                <>
+                  <button onClick={() => executePrint('global')} className="flex items-center gap-3 p-4 rounded-lg border border-slate-200 hover:border-blue-500 hover:bg-blue-50 transition-colors text-left group">
+                    <div className="bg-slate-100 p-2 rounded-md group-hover:bg-blue-100 group-hover:text-blue-600 transition-colors text-slate-600">
+                      <Users className="w-5 h-5" />
+                    </div>
+                    <div>
+                      <div className="font-bold text-slate-800 text-sm">Emploi du temps global</div>
+                      <div className="text-xs text-slate-500">Imprimer tous les enseignants sur la même grille (vue actuelle)</div>
+                    </div>
+                  </button>
+                  
+                  <button onClick={() => setSelectingTeachers(true)} className="flex items-center gap-3 p-4 rounded-lg border border-slate-200 hover:border-blue-500 hover:bg-blue-50 transition-colors text-left group">
+                    <div className="bg-slate-100 p-2 rounded-md group-hover:bg-blue-100 group-hover:text-blue-600 transition-colors text-slate-600">
+                      <User className="w-5 h-5" />
+                    </div>
+                    <div>
+                      <div className="font-bold text-slate-800 text-sm">Par enseignant</div>
+                      <div className="text-xs text-slate-500">Sélectionner et imprimer 1 page par enseignant</div>
+                    </div>
+                  </button>
+                </>
+              ) : (
+                <div className="flex flex-col gap-2 max-h-64 overflow-y-auto pr-2">
+                  <div className="flex justify-between items-center mb-2">
+                    <span className="text-sm font-semibold text-slate-700">Sélectionnez les enseignants</span>
+                    <button onClick={() => setSelectedTeachersForPrint(teachers.map(t => t.id))} className="text-xs text-blue-600 hover:underline">Tout cocher</button>
+                  </div>
+                  {teachers.map(t => (
+                    <label key={t.id} className="flex items-center gap-2 cursor-pointer bg-slate-50 p-2 rounded border border-slate-100 hover:bg-slate-100">
+                      <input type="checkbox" checked={selectedTeachersForPrint.includes(t.id)} 
+                        onChange={(e) => {
+                          if (e.target.checked) setSelectedTeachersForPrint([...selectedTeachersForPrint, t.id]);
+                          else setSelectedTeachersForPrint(selectedTeachersForPrint.filter(id => id !== t.id));
+                        }} 
+                        className="rounded text-blue-600 focus:ring-blue-500" 
+                      />
+                      <span className="text-sm font-medium text-slate-700">{t.name}</span>
+                    </label>
+                  ))}
+                  {teachers.length === 0 && <p className="text-sm text-slate-500 italic">Aucun enseignant</p>}
                 </div>
-                <div>
-                  <div className="font-bold text-slate-800 text-sm">Emploi du temps global</div>
-                  <div className="text-xs text-slate-500">Imprimer tous les enseignants sur la même grille (vue actuelle)</div>
-                </div>
-              </button>
-              
-              <button onClick={() => executePrint('teachers')} className="flex items-center gap-3 p-4 rounded-lg border border-slate-200 hover:border-blue-500 hover:bg-blue-50 transition-colors text-left group">
-                <div className="bg-slate-100 p-2 rounded-md group-hover:bg-blue-100 group-hover:text-blue-600 transition-colors text-slate-600">
-                  <User className="w-5 h-5" />
-                </div>
-                <div>
-                  <div className="font-bold text-slate-800 text-sm">Par enseignant</div>
-                  <div className="text-xs text-slate-500">Imprimer un emploi du temps individuel (1 page par enseignant)</div>
-                </div>
-              </button>
+              )}
             </div>
-            <div className="px-6 py-3 border-t border-slate-100 bg-slate-50 flex justify-end">
-              <button type="button" onClick={() => setShowPrintModal(false)} className="px-4 py-2 bg-white border border-slate-300 hover:bg-slate-50 text-slate-700 rounded-md font-medium transition-colors text-sm">Annuler</button>
+            <div className="px-6 py-3 border-t border-slate-100 bg-slate-50 flex justify-end gap-2">
+              <button type="button" onClick={() => {
+                if (selectingTeachers) setSelectingTeachers(false);
+                else setShowPrintModal(false);
+              }} className="px-4 py-2 bg-white border border-slate-300 hover:bg-slate-50 text-slate-700 rounded-md font-medium transition-colors text-sm">Annuler</button>
+              {selectingTeachers && (
+                <button type="button" onClick={() => executePrint('teachers')} disabled={selectedTeachersForPrint.length === 0} className="px-4 py-2 bg-blue-600 disabled:opacity-50 hover:bg-blue-700 text-white rounded-md font-medium transition-colors text-sm">
+                  Valider
+                </button>
+              )}
             </div>
           </div>
         </div>
@@ -178,7 +219,7 @@ export default function Schedule() {
       {/* Hidden print-only view for 'teachers' mode */}
       {printMode === 'teachers' && (
         <div className="hidden print:block w-full text-slate-900 bg-white">
-          {teachers.map(teacher => (
+          {teachers.filter(teacher => selectedTeachersForPrint.includes(teacher.id)).map(teacher => (
             <div key={teacher.id} className="print:page-break-after-always pb-8">
               <h2 className="text-2xl font-bold mb-4">{teacher.name} - Emploi du temps</h2>
               <div className="flex border border-slate-300">
