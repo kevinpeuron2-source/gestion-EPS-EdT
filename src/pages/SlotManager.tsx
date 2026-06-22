@@ -68,7 +68,7 @@ export default function SlotManager() {
         
         <div className="bg-white rounded-xl shadow-sm border border-slate-200 p-6">
           <h2 className="text-lg font-bold text-slate-800 mb-4">{form.id ? "Modifier le créneau" : "Ajouter un créneau"}</h2>
-          <form onSubmit={saveCourse} className="grid grid-cols-1 md:grid-cols-7 gap-4 items-end">
+          <form onSubmit={saveCourse} className="grid grid-cols-1 md:grid-cols-6 gap-4 items-end">
             <div>
               <label className="block text-xs font-semibold text-slate-600 mb-1">Enseignant</label>
               <select required value={form.teacherId} onChange={e => setForm({...form, teacherId: e.target.value})} className="form-select w-full text-sm rounded-md border-slate-300">
@@ -97,16 +97,9 @@ export default function SlotManager() {
                 {classes.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
               </select>
             </div>
-            <div>
-              <label className="block text-xs font-semibold text-slate-600 mb-1">Salle (Optionnel)</label>
-              <select value={form.facilityId} onChange={e => setForm({...form, facilityId: e.target.value})} className="form-select w-full text-sm rounded-md border-slate-300">
-                <option value="">Aucune</option>
-                {facilities.map(f => <option key={f.id} value={f.id}>{f.name}</option>)}
-              </select>
-            </div>
-            <div className="flex gap-2">
+            <div className="flex gap-2 items-end">
                {form.id && <button type="button" onClick={() => setForm({dayOfWeek: "Lundi", teacherId: "", startTime: "08:00", endTime: "09:00", classId: "", facilityId: ""})} className="px-4 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-lg text-sm font-medium transition-colors">Annuler</button>}
-               <button type="submit" className="w-full py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-sm font-medium transition-colors flex items-center justify-center gap-2">
+               <button type="submit" className="flex-1 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-sm font-medium transition-colors flex items-center justify-center gap-2">
                  <Plus className="w-4 h-4" /> {form.id ? "Valider" : "Ajouter"}
                </button>
             </div>

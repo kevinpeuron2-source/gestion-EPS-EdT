@@ -33,6 +33,7 @@ export interface ClassGroup {
   catchUpDate?: string;
   ccfDeadline?: string;
   importantDates?: { id: string; date: string; description: string }[];
+  internships?: { id: string; startWeek: number; endWeek: number }[];
 }
 
 export interface Facility {

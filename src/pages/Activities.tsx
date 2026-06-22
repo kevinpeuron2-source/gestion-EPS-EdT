@@ -30,6 +30,7 @@ export default function Activities() {
   const [printStartWk, setPrintStartWk] = useState<number>(1);
   const [printEndWk, setPrintEndWk] = useState<number>(52);
   const [isPrintingRange, setIsPrintingRange] = useState(false);
+  const [printFit, setPrintFit] = useState<'contain' | 'width' | 'height'>('contain');
 
   const executePrintRange = () => {
      setShowPrintModal(false);
@@ -173,6 +174,15 @@ export default function Activities() {
     }) || false;
   };
 
+  const checkIfAbsent = (cId: string, internalWk: number, calWk: number) => {
+    if (absences.some(a => a.classId === cId && calWk >= a.startWeek && calWk <= a.endWeek)) return true;
+    const cls = classes.find(c => c.id === cId);
+    if (cls?.internships) {
+      if (cls.internships.some(i => internalWk >= i.startWeek && internalWk <= i.endWeek)) return true;
+    }
+    return false;
+  };
+
   const generateSchedule = async () => {
     setOptimizing(true);
     try {
@@ -272,7 +282,7 @@ export default function Activities() {
           let currWeek = w;
 
           while (teachingWeeks < dur && currWeek <= totalWks) {
-            const isAbsent = absences.some(a => a.classId === classId && weekNumbers[currWeek - 1] >= a.startWeek && weekNumbers[currWeek - 1] <= a.endWeek);
+            const isAbsent = checkIfAbsent(classId, currWeek, weekNumbers[currWeek - 1]);
             if (isHoliday(currWeek) || isAbsent) {
               currWeek++;
               continue;
@@ -309,7 +319,7 @@ export default function Activities() {
           let tWk = 0;
           let cw = bestStart;
           while (tWk < dur && cw <= bestEnd) {
-             const isAbsent = absences.some(a => a.classId === classId && weekNumbers[cw - 1] >= a.startWeek && weekNumbers[cw - 1] <= a.endWeek);
+             const isAbsent = checkIfAbsent(classId, cw, weekNumbers[cw - 1]);
              if (!isHoliday(cw) && !isAbsent) {
                if (!allocations[facId]) allocations[facId] = {};
                if (!allocations[facId][cw]) allocations[facId][cw] = [];
@@ -544,17 +554,17 @@ export default function Activities() {
                 </div>
               </div>
               
-              <div className="space-y-3">
+              <div className={isPrintingRange && (printFit === 'contain' || printFit === 'height') ? "flex flex-col h-[155mm] gap-1" : "space-y-3"}>
                 {classes.map(c => {
                   const mySAs = scheduledActivities.filter(sa => sa.classId === c.id);
                   if (mySAs.length === 0) return null;
                   
                   return (
-                    <div key={c.id} className="flex items-center min-h-[32px] print:min-h-[28px]">
+                    <div key={c.id} className={`flex items-center ${isPrintingRange && (printFit === 'contain' || printFit === 'height') ? 'flex-1 min-h-0' : 'min-h-[32px]'}`}>
                       <div className="w-32 print:w-24 shrink-0 text-sm font-medium text-slate-800 flex flex-col justify-center">
                          <div className="flex items-center gap-2">
-                           <div className="w-2 h-2 rounded-full" style={{ backgroundColor: c.color }} />
-                           <span className="print:text-xs">{c.name}</span>
+                           <div className="w-2 h-2 rounded-full shrink-0" style={{ backgroundColor: c.color }} />
+                           <span className="print:text-xs truncate">{c.name}</span>
                          </div>
                          {c.level === 'Terminale' && c.catchUpDate && (
                            <div className="text-[9px] text-slate-400 truncate mt-0.5 print:hidden" title={`Rattrapages: ${c.catchUpDate}`}>Rattrapage: {c.catchUpDate}</div>
@@ -563,7 +573,7 @@ export default function Activities() {
                            <div className="text-[9px] text-slate-400 truncate mt-0.5" title={`Arrêt CCF: ${c.ccfDeadline}`}>CCF: {c.ccfDeadline}</div>
                          )}
                       </div>
-                      <div className="flex-1 flex relative h-8 print:h-6 bg-slate-50 print:bg-white rounded-md border border-slate-100 overflow-hidden">
+                      <div className="flex-1 flex relative h-full min-h-[16px] bg-slate-50 print:bg-white rounded-md border border-slate-100 overflow-hidden">
                         {/* Draw Holidays Background */}
                         {settings?.holidays?.map(h => {
                             const calWeeks = getWeekNumbers(h.startWeek, h.endWeek);
@@ -589,7 +599,7 @@ export default function Activities() {
                           const blocks: {start: number, end: number}[] = [];
                           let currentBlock: {start: number, end: number} | null = null;
                           for(let w = sa.startWeek; w <= sa.endWeek; w++) {
-                            const isAbsent = absences.some(a => a.classId === c.id && weekNumbers[w - 1] >= a.startWeek && weekNumbers[w - 1] <= a.endWeek);
+                            const isAbsent = checkIfAbsent(c.id, w, weekNumbers[w - 1]);
                             if (!isHoliday(w) && !isAbsent) {
                               if (!currentBlock) currentBlock = {start: w, end: w};
                               else currentBlock.end = w;
@@ -723,8 +733,17 @@ export default function Activities() {
               <h3 className="font-bold text-slate-800">Impression de la Répartition</h3>
             </div>
             <div className="p-6 flex flex-col gap-4">
-              <p className="text-sm text-slate-600">Sélectionnez la plage de semaines (internes, de 1 à {totalWks}) que vous souhaitez afficher sur la page.</p>
+              <p className="text-sm text-slate-600">Sélectionnez les options pour l'impression du tableau.</p>
               
+              <div className="mb-2">
+                <label className="block text-xs font-semibold text-slate-600 mb-1">Ajustement de l'échelle</label>
+                <select value={printFit} onChange={(e) => setPrintFit(e.target.value as any)} className="form-select w-full text-sm rounded-md border-slate-300">
+                   <option value="contain">Ajuster à la page (Hauteur et Largeur)</option>
+                   <option value="width">Ajuster à la largeur (La hauteur peut dépasser)</option>
+                   <option value="height">Ajuster à la hauteur (Fit vertical)</option>
+                </select>
+              </div>
+
               <div className="flex gap-4">
                 <div className="flex-1">
                   <label className="block text-xs font-semibold text-slate-600 mb-1">Semaine de début</label>

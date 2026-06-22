@@ -358,6 +358,36 @@ export default function Settings() {
                       updateDoc(doc(db, "classes", c.id), { importantDates: newDates });
                    }} className="text-[10px] text-blue-600 hover:text-blue-800 font-medium mt-1">+ Date importante</button>
                 </div>
+                {/* Internships simple manager */}
+                <div className="mt-2 pl-5">
+                   <div className="text-[10px] font-bold text-slate-500 uppercase mb-1">Périodes de stage</div>
+                   {c.internships?.map((internship, index) => (
+                      <div key={internship.id} className="flex items-center gap-2 mt-1">
+                        <span className="text-xs text-slate-500">Sem. interne</span>
+                        <input type="number" min="1" max="52" value={internship.startWeek} onChange={(e) => {
+                          const newInternships = [...(c.internships || [])];
+                          newInternships[index].startWeek = parseInt(e.target.value) || 1;
+                          updateDoc(doc(db, "classes", c.id), { internships: newInternships });
+                        }} className="text-xs w-16 border-slate-200 rounded py-0.5" />
+                        <span className="text-xs text-slate-500">à</span>
+                        <input type="number" min="1" max="52" value={internship.endWeek} onChange={(e) => {
+                          const newInternships = [...(c.internships || [])];
+                          newInternships[index].endWeek = parseInt(e.target.value) || 1;
+                          updateDoc(doc(db, "classes", c.id), { internships: newInternships });
+                        }} className="text-xs w-16 border-slate-200 rounded py-0.5" />
+                        <button onClick={() => {
+                          const newInternships = c.internships?.filter(x => x.id !== internship.id);
+                          updateDoc(doc(db, "classes", c.id), { internships: newInternships });
+                        }} className="text-slate-400 hover:text-red-500"><Trash2 className="w-3 h-3" /></button>
+                      </div>
+                   ))}
+                   {(!c.internships || c.internships.length < 2) && (
+                     <button onClick={() => {
+                        const newInternships = [...(c.internships || []), { id: Date.now().toString(), startWeek: 1, endWeek: 1 }];
+                        updateDoc(doc(db, "classes", c.id), { internships: newInternships });
+                     }} className="text-[10px] text-blue-600 hover:text-blue-800 font-medium mt-1">+ Ajouter une période de stage</button>
+                   )}
+                </div>
               </li>
             ))}
             {classes.length === 0 && <li className="text-sm text-slate-400 italic">Aucune classe</li>}
