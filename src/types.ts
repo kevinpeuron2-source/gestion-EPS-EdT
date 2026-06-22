@@ -4,6 +4,7 @@ export interface ScheduledActivity {
   classId: string;
   startWeek: number;
   endWeek: number;
+  isLocked?: boolean;
 }
 
 export interface ClassRequirement {

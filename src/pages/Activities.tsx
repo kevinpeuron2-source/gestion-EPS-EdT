@@ -1,8 +1,8 @@
 import React, { useState } from "react";
 import { useStore } from "../store/useStore";
 import { db } from "../lib/firebase";
-import { collection, addDoc, deleteDoc, doc } from "firebase/firestore";
-import { Plus, Trash2, Activity as ActivityIcon, CalendarDays, Wand2 } from "lucide-react";
+import { collection, addDoc, deleteDoc, doc, updateDoc } from "firebase/firestore";
+import { Plus, Trash2, Activity as ActivityIcon, CalendarDays, Wand2, Lock, LockOpen } from "lucide-react";
 import { getISOWeek, parseISO } from "date-fns";
 
 export default function Activities() {
@@ -23,6 +23,23 @@ export default function Activities() {
   const [absReason, setAbsReason] = useState("");
   const [absStart, setAbsStart] = useState<number>(1);
   const [absEnd, setAbsEnd] = useState<number>(1);
+
+  const [selectedSA, setSelectedSA] = useState<{ id: string, startWeekIdx: number, endWeekIdx: number, isLocked: boolean } | null>(null);
+
+  const handleSASubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!selectedSA) return;
+    try {
+      await updateDoc(doc(db, "scheduledActivities", selectedSA.id), {
+        startWeek: selectedSA.startWeekIdx + 1, // Store 1-based internal index
+        endWeek: selectedSA.endWeekIdx + 1,
+        isLocked: selectedSA.isLocked
+      });
+      setSelectedSA(null);
+    } catch(err) {
+      console.error(err);
+    }
+  };
 
   const [optimizing, setOptimizing] = useState(false);
 
@@ -134,7 +151,10 @@ export default function Activities() {
   const generateSchedule = async () => {
     setOptimizing(true);
     try {
-      for (const sa of scheduledActivities) {
+      const lockedSAs = scheduledActivities.filter(sa => sa.isLocked);
+      const unlockedSAs = scheduledActivities.filter(sa => !sa.isLocked);
+
+      for (const sa of unlockedSAs) {
         await deleteDoc(doc(db, "scheduledActivities", sa.id));
       }
 
@@ -161,16 +181,39 @@ export default function Activities() {
       };
 
       const allocations: Record<string, Record<number, string[]>> = {};
+      
+      // Initialize allocations with locked SAs
+      for (const sa of lockedSAs) {
+         const act = activities.find(a => a.id === sa.activityId);
+         if (!act) continue;
+         const facId = act.facilityId;
+         for (let w = sa.startWeek; w <= sa.endWeek; w++) {
+            if (!allocations[facId]) allocations[facId] = {};
+            if (!allocations[facId][w]) allocations[facId][w] = [];
+            allocations[facId][w].push(sa.classId);
+         }
+      }
+
       const toPlace = [];
       for (const a of activities) {
         for (const cid of a.classIds) {
-          toPlace.push({ activity: a, classId: cid });
+          // Check if it's already locked
+          const isAlreadyLocked = lockedSAs.some(sa => sa.activityId === a.id && sa.classId === cid);
+          if (!isAlreadyLocked) {
+            toPlace.push({ activity: a, classId: cid });
+          }
         }
       }
       
       toPlace.sort((x, y) => {
         if (x.activity.isMandatoryPeriod && !y.activity.isMandatoryPeriod) return -1;
         if (!x.activity.isMandatoryPeriod && y.activity.isMandatoryPeriod) return 1;
+        
+        if (x.activity.groupCycles && !y.activity.groupCycles) return -1;
+        if (!x.activity.groupCycles && y.activity.groupCycles) return 1;
+
+        if (x.activity.id !== y.activity.id) return x.activity.id.localeCompare(y.activity.id);
+
         return y.activity.durationWeeks - x.activity.durationWeeks;
       });
       const toSave = [];
@@ -522,11 +565,20 @@ export default function Activities() {
                                 return (
                                   <div 
                                     key={`${sa.id}-${idx}`} 
-                                    className={`absolute top-0 bottom-0 m-0.5 px-2 flex flex-col justify-center overflow-hidden shadow-sm shadow-slate-200 ${idx === 0 ? 'rounded-l' : ''} ${idx === blocks.length - 1 ? 'rounded-r' : ''} ${idx > 0 && idx < blocks.length - 1 ? 'rounded-none' : ''}`}
+                                    onClick={() => setSelectedSA({
+                                      id: sa.id,
+                                      startWeekIdx: sa.startWeek - 1,
+                                      endWeekIdx: sa.endWeek - 1,
+                                      isLocked: !!sa.isLocked
+                                    })}
+                                    className={`absolute top-0 bottom-0 m-0.5 px-2 flex flex-col justify-center overflow-hidden shadow-sm shadow-slate-200 cursor-pointer hover:brightness-95 transition-all ${idx === 0 ? 'rounded-l' : ''} ${idx === blocks.length - 1 ? 'rounded-r' : ''} ${idx > 0 && idx < blocks.length - 1 ? 'rounded-none' : ''}`}
                                     style={{ left: `${left}%`, width: `${width}%`, backgroundColor: fac?.color || '#e2e8f0' }}
                                     title={`${act?.name} (${fac?.name}) - Sem. ${calS} à ${calE}`}
                                   >
-                                    <div className="text-[10px] font-bold text-white truncate drop-shadow-md">{act?.name}</div>
+                                    <div className="text-[10px] font-bold text-white truncate drop-shadow-md flex items-center gap-1">
+                                      {sa.isLocked && <Lock className="w-2.5 h-2.5 shrink-0" />}
+                                      {act?.name}
+                                    </div>
                                   </div>
                                 );
                               })}
@@ -575,6 +627,37 @@ export default function Activities() {
         )}
       </div>
 
+      {selectedSA && (
+        <div className="fixed inset-0 bg-slate-900/40 backdrop-blur-sm flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-xl shadow-xl w-full max-w-sm overflow-hidden border border-slate-200">
+            <div className="px-6 py-4 border-b border-slate-100 bg-slate-50 flex justify-between items-center">
+              <h3 className="font-bold text-slate-800">Modifier l'activité</h3>
+            </div>
+            <form onSubmit={handleSASubmit} className="p-6 space-y-4">
+              <div className="flex gap-4">
+                <div className="flex-1">
+                  <label className="block text-xs font-semibold text-slate-600 mb-1">Début (S.X)</label>
+                  <input type="number" min="1" max="52" required value={selectedSA.startWeekIdx + 1} onChange={e => setSelectedSA({...selectedSA, startWeekIdx: parseInt(e.target.value) - 1})} className="form-input w-full text-sm rounded-md border-slate-300" />
+                </div>
+                <div className="flex-1">
+                  <label className="block text-xs font-semibold text-slate-600 mb-1">Fin (S.X)</label>
+                  <input type="number" min="1" max="52" required value={selectedSA.endWeekIdx + 1} onChange={e => setSelectedSA({...selectedSA, endWeekIdx: parseInt(e.target.value) - 1})} className="form-input w-full text-sm rounded-md border-slate-300" />
+                </div>
+              </div>
+              <div>
+                <label className="flex items-center gap-2 cursor-pointer font-medium text-sm text-slate-700">
+                  <input type="checkbox" checked={selectedSA.isLocked} onChange={e => setSelectedSA({...selectedSA, isLocked: e.target.checked})} className="rounded text-blue-600 focus:ring-blue-500" />
+                  Verrouiller l'activité (ne pas regénérer)
+                </label>
+              </div>
+              <div className="flex gap-2 pt-4 border-t border-slate-100">
+                <button type="button" onClick={() => setSelectedSA(null)} className="flex-1 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-lg text-sm font-medium transition-colors">Annuler</button>
+                <button type="submit" className="flex-1 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-sm font-medium transition-colors">Enregistrer</button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
