@@ -36,7 +36,7 @@ export default function Activities() {
      setIsPrintingRange(true);
      setTimeout(() => {
         const style = document.createElement('style');
-        style.innerHTML = `@media print { @page { size: landscape; margin: 5mm; } body { -webkit-print-color-adjust: exact; print-color-adjust: exact; } }`;
+        style.innerHTML = `@media print { @page { size: A4 landscape; margin: 5mm; } body { -webkit-print-color-adjust: exact; print-color-adjust: exact; } }`;
         document.head.appendChild(style);
         window.print();
         document.head.removeChild(style);

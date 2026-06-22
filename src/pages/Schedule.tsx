@@ -19,6 +19,8 @@ export default function Schedule() {
   const [showPrintModal, setShowPrintModal] = useState(false);
   const [printMode, setPrintMode] = useState<'global' | 'teachers' | null>(null);
 
+  const pxPerMinute = printMode ? 1.0 : PX_PER_MINUTE; // Scale down vertically for print to fit A4 Landscape
+
   const executePrint = (mode: 'global' | 'teachers') => {
     setPrintMode(mode);
     setShowPrintModal(false);
@@ -26,7 +28,7 @@ export default function Schedule() {
       const style = document.createElement('style');
       style.innerHTML = `
         @media print { 
-          @page { size: landscape; margin: 5mm; }
+          @page { size: A4 landscape; margin: 8mm; }
           body { 
             -webkit-print-color-adjust: exact; 
             print-color-adjust: exact;
@@ -37,7 +39,7 @@ export default function Schedule() {
       window.print();
       document.head.removeChild(style);
       setPrintMode(null);
-    }, 100);
+    }, 200);
   };
 
   return (
@@ -59,9 +61,9 @@ export default function Schedule() {
           {/* Time Axis */}
           <div className={`w-12 shrink-0 bg-slate-50 ${printMode === 'teachers' ? '' : 'print:bg-white border-r border-slate-200 sticky left-0 z-30 print:static'}`}>
             <div className="border-b border-slate-200" style={{ height: HEADER_HEIGHT }}></div>
-            <div className="relative" style={{ height: (TIME_END - TIME_START) * 60 * PX_PER_MINUTE }}>
+            <div className="relative" style={{ height: (TIME_END - TIME_START) * 60 * pxPerMinute }}>
                {Array.from({ length: TIME_END - TIME_START + 1 }).map((_, i) => (
-                 <div key={i} className="absolute w-full px-1 text-right text-[10px] text-slate-400 font-medium transform -translate-y-1/2" style={{ top: i * 60 * PX_PER_MINUTE }}>
+                 <div key={i} className="absolute w-full px-1 text-right text-[10px] text-slate-400 font-medium transform -translate-y-1/2" style={{ top: i * 60 * pxPerMinute }}>
                    {TIME_START + i}h
                  </div>
                ))}
@@ -85,10 +87,10 @@ export default function Schedule() {
                   ))}
                 </div>
                 {/* Columns for this day */}
-                <div className="flex flex-row relative bg-white" style={{ height: (TIME_END - TIME_START) * 60 * PX_PER_MINUTE }}>
+                <div className="flex flex-row relative bg-white" style={{ height: (TIME_END - TIME_START) * 60 * pxPerMinute }}>
                   {/* Hourly grid lines */}
                   {Array.from({ length: TIME_END - TIME_START }).map((_, i) => (
-                    <div key={i} className="absolute w-full border-t border-slate-100 pointer-events-none" style={{ top: (i + 1) * 60 * PX_PER_MINUTE }}></div>
+                    <div key={i} className="absolute w-full border-t border-slate-100 pointer-events-none" style={{ top: (i + 1) * 60 * pxPerMinute }}></div>
                   ))}
 
                   {teachers.map((teacher, tIdx) => {
@@ -107,8 +109,8 @@ export default function Schedule() {
                             return (
                               <div key={course.id} className={`absolute left-0 right-0 rounded border p-1 overflow-hidden m-0.5 ${printMode === 'teachers' ? '' : 'print:break-inside-avoid'}`}
                                 style={{
-                                  top: startMins * PX_PER_MINUTE,
-                                  height: Math.max(15, dur * PX_PER_MINUTE - 1),
+                                  top: startMins * pxPerMinute,
+                                  height: Math.max(15, dur * pxPerMinute - 1),
                                   backgroundColor: bgColor,
                                   borderColor: isUnavail ? '#cbd5e1' : 'rgba(0,0,0,0.1)',
                                   borderStyle: isUnavail ? 'dashed' : 'solid'
@@ -183,9 +185,9 @@ export default function Schedule() {
                 {/* Time Axis for Teacher */}
                 <div className="w-16 shrink-0 bg-slate-100 border-r border-slate-300">
                   <div className="h-10 border-b border-slate-300"></div>
-                  <div className="relative" style={{ height: (TIME_END - TIME_START) * 60 * PX_PER_MINUTE }}>
+                  <div className="relative" style={{ height: (TIME_END - TIME_START) * 60 * pxPerMinute }}>
                     {Array.from({ length: TIME_END - TIME_START + 1 }).map((_, i) => (
-                      <div key={i} className="absolute w-full px-2 text-right text-xs text-slate-600 font-medium transform -translate-y-1/2" style={{ top: i * 60 * PX_PER_MINUTE }}>
+                      <div key={i} className="absolute w-full px-2 text-right text-xs text-slate-600 font-medium transform -translate-y-1/2" style={{ top: i * 60 * pxPerMinute }}>
                         {TIME_START + i}h
                       </div>
                     ))}
@@ -201,10 +203,10 @@ export default function Schedule() {
                         <div className="h-10 bg-slate-200 text-slate-800 font-bold flex items-center justify-center border-b border-slate-300">
                           {day}
                         </div>
-                        <div className="relative bg-white" style={{ height: (TIME_END - TIME_START) * 60 * PX_PER_MINUTE }}>
+                        <div className="relative bg-white" style={{ height: (TIME_END - TIME_START) * 60 * pxPerMinute }}>
                           {/* Hourly horizontal lines */}
                           {Array.from({ length: TIME_END - TIME_START }).map((_, i) => (
-                            <div key={i} className="absolute w-full border-t border-slate-200 pointer-events-none" style={{ top: (i + 1) * 60 * PX_PER_MINUTE }}></div>
+                            <div key={i} className="absolute w-full border-t border-slate-200 pointer-events-none" style={{ top: (i + 1) * 60 * pxPerMinute }}></div>
                           ))}
 
                           {/* Courses */}
@@ -219,8 +221,8 @@ export default function Schedule() {
                             return (
                               <div key={course.id} className="absolute left-1 right-1 rounded-md border p-1.5 overflow-hidden break-inside-avoid shadow-sm"
                                 style={{
-                                  top: startMins * PX_PER_MINUTE,
-                                  height: Math.max(15, dur * PX_PER_MINUTE - 1),
+                                  top: startMins * pxPerMinute,
+                                  height: Math.max(15, dur * pxPerMinute - 1),
                                   backgroundColor: bgColor,
                                   borderColor: isUnavail ? '#cbd5e1' : 'rgba(0,0,0,0.15)',
                                   borderStyle: isUnavail ? 'dashed' : 'solid'
