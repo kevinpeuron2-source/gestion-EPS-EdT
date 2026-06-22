@@ -8,10 +8,16 @@ import { getISOWeek, parseISO } from "date-fns";
 export default function Activities() {
   const { activities, absences, classes, facilities, courses, scheduledActivities, settings } = useStore();
 
+  const [editingActivityId, setEditingActivityId] = useState<string | null>(null);
   const [newActivityName, setNewActivityName] = useState("");
   const [newActivityDuration, setNewActivityDuration] = useState<number>(7);
   const [newActivityFacility, setNewActivityFacility] = useState("");
   const [newActivityClasses, setNewActivityClasses] = useState<string[]>([]);
+  const [newActivityMaxCapacity, setNewActivityMaxCapacity] = useState<number>(1);
+  const [newActivityPrefStart, setNewActivityPrefStart] = useState<number | ''>('');
+  const [newActivityPrefEnd, setNewActivityPrefEnd] = useState<number | ''>('');
+  const [newActivityGroup, setNewActivityGroup] = useState<boolean>(false);
+  const [newActivityMandatory, setNewActivityMandatory] = useState<boolean>(false);
 
   const [selClassId, setSelClassId] = useState("");
   const [absReason, setAbsReason] = useState("");
@@ -32,15 +38,48 @@ export default function Activities() {
       alert("Veuillez remplir tous les champs (nom, installation, et au moins une classe).");
       return;
     }
-    await addDoc(collection(db, "activities"), {
+    const data = {
       name: newActivityName,
       durationWeeks: newActivityDuration,
+      maxCapacity: newActivityMaxCapacity,
       facilityId: newActivityFacility,
       classIds: newActivityClasses,
-      createdAt: new Date()
-    });
+      preferredStartWeek: newActivityPrefStart || null,
+      preferredEndWeek: newActivityPrefEnd || null,
+      groupCycles: newActivityGroup,
+      isMandatoryPeriod: newActivityMandatory,
+    };
+    if (editingActivityId) {
+      await updateDoc(doc(db, "activities", editingActivityId), data);
+      setEditingActivityId(null);
+    } else {
+      await addDoc(collection(db, "activities"), { ...data, createdAt: new Date() });
+    }
+    resetForm();
+  };
+
+  const resetForm = () => {
+    setEditingActivityId(null);
     setNewActivityName("");
     setNewActivityClasses([]);
+    setNewActivityMaxCapacity(1);
+    setNewActivityPrefStart('');
+    setNewActivityPrefEnd('');
+    setNewActivityGroup(false);
+    setNewActivityMandatory(false);
+  };
+
+  const editActivity = (a: any) => {
+    setEditingActivityId(a.id);
+    setNewActivityName(a.name);
+    setNewActivityDuration(a.durationWeeks);
+    setNewActivityFacility(a.facilityId);
+    setNewActivityClasses(a.classIds);
+    setNewActivityMaxCapacity(a.maxCapacity || 1);
+    setNewActivityPrefStart(a.preferredStartWeek || '');
+    setNewActivityPrefEnd(a.preferredEndWeek || '');
+    setNewActivityGroup(a.groupCycles || false);
+    setNewActivityMandatory(a.isMandatoryPeriod || false);
   };
 
   const deleteActivity = async (id: string) => {
@@ -129,7 +168,11 @@ export default function Activities() {
         }
       }
       
-      toPlace.sort((x, y) => y.activity.durationWeeks - x.activity.durationWeeks);
+      toPlace.sort((x, y) => {
+        if (x.activity.isMandatoryPeriod && !y.activity.isMandatoryPeriod) return -1;
+        if (!x.activity.isMandatoryPeriod && y.activity.isMandatoryPeriod) return 1;
+        return y.activity.durationWeeks - x.activity.durationWeeks;
+      });
       const toSave = [];
 
       for (const item of toPlace) {
@@ -141,15 +184,28 @@ export default function Activities() {
         let bestEnd = dur;
         let placed = false;
 
+        let prefStartIdx = 0;
+        let prefEndIdx = 0;
+        if (activity.preferredStartWeek && activity.preferredEndWeek) {
+           prefStartIdx = weekNumbers.indexOf(activity.preferredStartWeek) + 1;
+           prefEndIdx = weekNumbers.indexOf(activity.preferredEndWeek) + 1;
+        }
+
         for (let w = 1; w <= totalWks; w++) {
           if (isHoliday(w)) continue;
+
+          // Mandatory constraint check
+          if (activity.isMandatoryPeriod && prefStartIdx > 0 && prefEndIdx > 0) {
+            if (w < prefStartIdx || w > prefEndIdx) continue;
+          }
 
           let canPlace = true;
           let teachingWeeks = 0;
           let currWeek = w;
 
           while (teachingWeeks < dur && currWeek <= totalWks) {
-            if (isHoliday(currWeek)) {
+            const isAbsent = absences.some(a => a.classId === classId && weekNumbers[currWeek - 1] >= a.startWeek && weekNumbers[currWeek - 1] <= a.endWeek);
+            if (isHoliday(currWeek) || isAbsent) {
               currWeek++;
               continue;
             }
@@ -157,7 +213,7 @@ export default function Activities() {
             const inFac = allocations[facId]?.[currWeek] || [];
             const overlappingClasses = inFac.filter(otherC => checkOverlap(classId, otherC));
             const facility = facilities.find(f => f.id === facId);
-            const maxCapacity = facility?.capacity || 1;
+            const maxCapacity = activity.maxCapacity || facility?.capacity || 1;
 
             if (overlappingClasses.length >= maxCapacity) {
                canPlace = false;
@@ -185,7 +241,8 @@ export default function Activities() {
           let tWk = 0;
           let cw = bestStart;
           while (tWk < dur && cw <= bestEnd) {
-             if (!isHoliday(cw)) {
+             const isAbsent = absences.some(a => a.classId === classId && weekNumbers[cw - 1] >= a.startWeek && weekNumbers[cw - 1] <= a.endWeek);
+             if (!isHoliday(cw) && !isAbsent) {
                if (!allocations[facId]) allocations[facId] = {};
                if (!allocations[facId][cw]) allocations[facId][cw] = [];
                allocations[facId][cw].push(classId);
@@ -232,12 +289,21 @@ export default function Activities() {
                     <span className="text-sm font-medium">{a.name}</span> <span className="text-xs text-slate-400">({a.durationWeeks} sem.)</span>
                     <div className="text-[10px] text-slate-500 mt-1">
                       <span className="font-semibold text-slate-600">Lieu:</span> {fac?.name || '?'} <br/>
+                      <span className="font-semibold text-slate-600">Simultanée:</span> {a.maxCapacity || fac?.capacity || 1} classe(s) <br/>
+                      {a.preferredStartWeek && a.preferredEndWeek && <><span className="font-semibold text-slate-600">Période:</span> S{a.preferredStartWeek}-S{a.preferredEndWeek} <br/></>}
+                      {a.isMandatoryPeriod && <><span className="text-red-600 font-semibold text-[9px] uppercase">Période imposée</span><br/></>}
+                      {a.groupCycles && <><span className="text-blue-600 font-semibold text-[9px] uppercase">Mise en place importante (Groupé)</span><br/></>}
                       <span className="font-semibold text-slate-600">Classes:</span> <span className="text-slate-400">{clsNames || 'Aucune'}</span>
                     </div>
                   </div>
-                  <button onClick={() => deleteActivity(a.id)} className="text-slate-400 hover:text-red-500 opacity-0 group-hover:opacity-100 transition-opacity">
-                    <Trash2 className="w-4 h-4" />
-                  </button>
+                  <div className="flex gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
+                    <button onClick={() => editActivity(a)} className="text-slate-400 hover:text-blue-600">
+                      <span className="text-xs font-semibold mr-2 border border-slate-200 px-2 py-1 rounded bg-white">Éditer</span>
+                    </button>
+                    <button onClick={() => deleteActivity(a.id)} className="text-slate-400 hover:text-red-500">
+                      <Trash2 className="w-4 h-4" />
+                    </button>
+                  </div>
                 </li>
               );
             })}
@@ -254,6 +320,11 @@ export default function Activities() {
             </div>
 
             <div className="flex items-center gap-2">
+              <label className="text-xs font-medium text-slate-600 shrink-0 w-24" title="Nombre de classes en simultané pour cette activité">Capacité simul.</label>
+              <input type="number" min="1" value={newActivityMaxCapacity} onChange={e=>setNewActivityMaxCapacity(parseInt(e.target.value))} className="form-input flex-1 text-sm rounded-md border-slate-300" required />
+            </div>
+
+            <div className="flex items-center gap-2">
               <label className="text-xs font-medium text-slate-600 shrink-0 w-24">Installation</label>
               <select value={newActivityFacility} onChange={e=>setNewActivityFacility(e.target.value)} className="form-select flex-1 text-sm rounded-md border-slate-300 bg-white" required>
                 <option value="">-- Choisir --</option>
@@ -261,7 +332,25 @@ export default function Activities() {
               </select>
             </div>
 
-            <div className="space-y-2">
+            <div className="flex items-center gap-2 mt-4 pt-4 border-t border-slate-100">
+              <label className="text-xs font-medium text-slate-600 shrink-0 w-24">Période id. S.</label>
+              <input type="number" min="1" max="52" value={newActivityPrefStart} onChange={e=>setNewActivityPrefStart(e.target.value ? parseInt(e.target.value) : '')} placeholder="ex: 1" className="form-input flex-1 text-sm rounded-md border-slate-300" />
+              <span className="text-sm text-slate-400">à</span>
+              <input type="number" min="1" max="52" value={newActivityPrefEnd} onChange={e=>setNewActivityPrefEnd(e.target.value ? parseInt(e.target.value) : '')} placeholder="ex: 12" className="form-input flex-1 text-sm rounded-md border-slate-300" />
+            </div>
+
+            <div className="flex flex-col gap-2">
+              <label className="flex items-center gap-2 text-xs font-medium text-slate-700 cursor-pointer">
+                <input type="checkbox" checked={newActivityGroup} onChange={e => setNewActivityGroup(e.target.checked)} className="rounded text-blue-600 focus:ring-blue-500" />
+                Regrouper idéalement les cycles (installation importante)
+              </label>
+              <label className="flex items-center gap-2 text-xs font-medium text-slate-700 cursor-pointer">
+                <input type="checkbox" checked={newActivityMandatory} onChange={e => setNewActivityMandatory(e.target.checked)} className="rounded text-blue-600 focus:ring-blue-500" />
+                Bloquer obligatoirement sur cette période (ex: Piscine)
+              </label>
+            </div>
+
+            <div className="space-y-2 mt-4 pt-4 border-t border-slate-100">
               <label className="text-xs font-medium text-slate-600">Classes concernées</label>
               <div className="flex gap-2 flex-wrap max-h-32 overflow-y-auto p-2 border border-slate-200 rounded-md bg-slate-50">
                 {classes.map(c => (
@@ -274,9 +363,16 @@ export default function Activities() {
               </div>
             </div>
 
-            <button type="submit" className="w-full bg-slate-800 text-white font-medium py-2 rounded-md text-sm hover:bg-slate-900 flex justify-center items-center gap-2 shadow-sm">
-              <Plus className="w-4 h-4" /> Ajouter l'activité
-            </button>
+            <div className="flex gap-2">
+              {editingActivityId && (
+                <button type="button" onClick={resetForm} className="flex-1 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-md text-sm font-medium transition-colors">
+                  Annuler
+                </button>
+              )}
+              <button type="submit" className="flex-[2] bg-slate-800 text-white font-medium py-2 rounded-md text-sm hover:bg-slate-900 flex justify-center items-center gap-2 shadow-sm">
+                <Plus className="w-4 h-4" /> {editingActivityId ? "Enregistrer" : "Ajouter l'activité"}
+              </button>
+            </div>
           </form>
         </section>
 
@@ -399,19 +495,42 @@ export default function Activities() {
                           const act = activities.find(a => a.id === sa.activityId);
                           const fac = facilities.find(f => f.id === act?.facilityId);
                           // sa.startWeek and sa.endWeek are relative indices 1..totalWks
-                          const left = Math.max(0, (sa.startWeek - 1) / totalWks * 100);
-                          const width = Math.min(100 - left, (sa.endWeek - sa.startWeek + 1) / totalWks * 100);
-                          const calS = weekNumbers[sa.startWeek - 1];
-                          const calE = weekNumbers[sa.endWeek - 1];
+
+                          const blocks: {start: number, end: number}[] = [];
+                          let currentBlock: {start: number, end: number} | null = null;
+                          for(let w = sa.startWeek; w <= sa.endWeek; w++) {
+                            const isAbsent = absences.some(a => a.classId === c.id && weekNumbers[w - 1] >= a.startWeek && weekNumbers[w - 1] <= a.endWeek);
+                            if (!isHoliday(w) && !isAbsent) {
+                              if (!currentBlock) currentBlock = {start: w, end: w};
+                              else currentBlock.end = w;
+                            } else {
+                              if (currentBlock) {
+                                blocks.push({...currentBlock});
+                                currentBlock = null;
+                              }
+                            }
+                          }
+                          if (currentBlock) blocks.push(currentBlock);
+
                           return (
-                            <div 
-                              key={sa.id} 
-                              className="absolute top-0 bottom-0 m-0.5 rounded px-2 flex flex-col justify-center overflow-hidden shadow-sm shadow-slate-200"
-                              style={{ left: `${left}%`, width: `${width}%`, backgroundColor: fac?.color || '#e2e8f0' }}
-                              title={`${act?.name} (${fac?.name}) - Sem. ${calS} à ${calE}`}
-                            >
-                              <div className="text-[10px] font-bold text-white truncate drop-shadow-md">{act?.name}</div>
-                            </div>
+                            <React.Fragment key={sa.id}>
+                              {blocks.map((block, idx) => {
+                                const left = Math.max(0, (block.start - 1) / totalWks * 100);
+                                const width = Math.min(100 - left, (block.end - block.start + 1) / totalWks * 100);
+                                const calS = weekNumbers[block.start - 1];
+                                const calE = weekNumbers[block.end - 1];
+                                return (
+                                  <div 
+                                    key={`${sa.id}-${idx}`} 
+                                    className={`absolute top-0 bottom-0 m-0.5 px-2 flex flex-col justify-center overflow-hidden shadow-sm shadow-slate-200 ${idx === 0 ? 'rounded-l' : ''} ${idx === blocks.length - 1 ? 'rounded-r' : ''} ${idx > 0 && idx < blocks.length - 1 ? 'rounded-none' : ''}`}
+                                    style={{ left: `${left}%`, width: `${width}%`, backgroundColor: fac?.color || '#e2e8f0' }}
+                                    title={`${act?.name} (${fac?.name}) - Sem. ${calS} à ${calE}`}
+                                  >
+                                    <div className="text-[10px] font-bold text-white truncate drop-shadow-md">{act?.name}</div>
+                                  </div>
+                                );
+                              })}
+                            </React.Fragment>
                           );
                         })}
                         

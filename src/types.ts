@@ -47,6 +47,7 @@ export interface Activity {
   durationWeeks: number;
   facilityId: string;
   classIds: string[];
+  maxCapacity?: number;
 }
 
 export interface Absence {

@@ -87,7 +87,6 @@ export default function Schedule() {
 
   const deleteCourse = async (id: string, e?: React.MouseEvent) => {
     e?.stopPropagation();
-    if (!window.confirm("Supprimer ce créneau ?")) return;
     try {
       await deleteDoc(doc(db, "courses", id));
       if (modalData?.id === id) setModalData(null);
@@ -149,27 +148,28 @@ export default function Schedule() {
         </button>
       </header>
 
-      <div className="flex-1 overflow-auto bg-slate-50 p-6 print:overflow-visible print:bg-white print:p-0 print:block">
-        <div className="flex flex-col gap-8 print:block">
-          {DAYS.map(day => (
-            <div key={day} className="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden print:mb-8 print:shadow-none print:border-none print:break-inside-avoid">
+      <div className="flex-1 overflow-auto bg-slate-50 p-6 print:overflow-visible print:bg-white print:p-0 flex">
+        <div className="flex flex-row gap-6 w-max min-w-full pb-8">
+          {/* Global Timeline axis */}
+          <div className="w-16 shrink-0 bg-transparent relative sticky left-0 z-30">
+            <div className="bg-slate-50 border-r border-slate-200 w-full h-full absolute right-0 shadow-[2px_0_4px_rgba(0,0,0,0.05)]"></div>
+             <div className="h-[44px] w-full"></div> {/* Day header height spacer */}
+             <div className="h-12 border-b border-transparent relative z-10"></div> {/* Teacher header height spacer */}
+             <div className="relative z-10" style={{ height: (TIME_END - TIME_START) * 60 * PX_PER_MINUTE }}>
+               {Array.from({ length: TIME_END - TIME_START + 1 }).map((_, i) => (
+                 <div key={i} className="absolute w-full text-right pr-2 text-xs text-slate-400 font-medium transform -translate-y-1/2" style={{ top: i * 60 * PX_PER_MINUTE }}>
+                   {TIME_START + i}h00
+                 </div>
+               ))}
+             </div>
+          </div>
+          {DAYS.map((day, index) => (
+            <div key={day} className="flex-1 min-w-[250px] shrink-0 bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden print:shadow-none print:border-none relative z-10">
               <div className="bg-slate-800 text-white px-4 py-2 font-bold text-lg text-center print:bg-slate-200 print:text-black">
                 {day}
               </div>
               
-              <div className="flex items-stretch overflow-x-auto min-w-full">
-                {/* Timeline axis */}
-                <div className="w-16 shrink-0 border-r border-slate-200 bg-white relative print:hidden">
-                   <div className="h-10 border-b border-slate-200"></div> {/* Header spacer */}
-                   <div className="relative" style={{ height: (TIME_END - TIME_START) * 60 * PX_PER_MINUTE }}>
-                     {Array.from({ length: TIME_END - TIME_START + 1 }).map((_, i) => (
-                       <div key={i} className="absolute w-full text-right pr-2 text-xs text-slate-400 font-medium transform -translate-y-1/2" style={{ top: i * 60 * PX_PER_MINUTE }}>
-                         {TIME_START + i}h00
-                       </div>
-                     ))}
-                   </div>
-                </div>
-
+              <div className="flex items-stretch min-w-full">
                 {/* Teachers Columns */}
                 {teachers.map(teacher => {
                   const dayCourses = courses.filter(c => c.dayOfWeek === day && (c.teacherId === teacher.id || c.coTeacherIds?.includes(teacher.id)));
@@ -233,6 +233,7 @@ export default function Schedule() {
                           const fac = facilities.find(f => f.id === course.facilityId);
 
                           const isUnavail = course.isUnavailability;
+                          const bgColor = isUnavail ? '#e2e8f0' : (fac?.color || tClass?.color || '#cbd5e1');
 
                           return (
                             <div
@@ -243,21 +244,21 @@ export default function Schedule() {
                                 e.stopPropagation();
                                 setModalData(course as any);
                               }}
-                              className={`absolute left-0.5 right-0.5 rounded p-1.5 shadow-sm border overflow-hidden group hover:z-30 hover:shadow-md transition-shadow ${course.locked ? 'cursor-default' : 'cursor-grab active:cursor-grabbing'}`}
+                              className={`absolute left-0.5 right-0.5 rounded p-1 shadow-sm border overflow-hidden group hover:z-30 hover:shadow-md transition-shadow ${course.locked ? 'cursor-default' : 'cursor-grab active:cursor-grabbing'}`}
                               style={{
                                 top: startMins * PX_PER_MINUTE + 1,
                                 height: Math.max(15, dur * PX_PER_MINUTE - 2),
-                                backgroundColor: isUnavail ? '#e2e8f0' : (tClass?.color || '#cbd5e1'),
-                                border: isUnavail ? '1px dashed #94a3b8' : '1px solid rgba(0,0,0,0.1)',
-                                color: isUnavail ? '#4f46e5' : '#fff',
+                                backgroundColor: bgColor,
+                                border: isUnavail ? '1px dashed #94a3b8' : '1px solid rgba(0,0,0,0.05)',
+                                color: isUnavail ? '#4f46e5' : '#1e293b',
                                 zIndex: 10,
-                                opacity: course.locked ? 0.9 : 1
+                                opacity: course.locked ? 0.9 : 0.95
                               }}
                             >
                               {/* Content */}
                               <div className="flex flex-col h-full relative z-10 pointer-events-none">
                                 <div className="flex justify-between items-start">
-                                  <span className="text-[10px] font-mono font-bold leading-none drop-shadow-sm text-white/90">{course.startTime}-{course.endTime}</span>
+                                  <span className="text-[10px] font-mono font-bold leading-none text-slate-700/80">{course.startTime}-{course.endTime}</span>
                                 </div>
                                 
                                 {isUnavail ? (
@@ -266,8 +267,8 @@ export default function Schedule() {
                                   </div>
                                 ) : (
                                   <div className="mt-0.5 flex-1 flex flex-col items-center justify-center text-center">
-                                    <span className="font-bold text-xs drop-shadow-md leading-tight">{tClass?.name || '???'}</span>
-                                    {fac && <span className="text-[9px] font-medium opacity-90 mt-0.5 px-1 bg-black/20 rounded drop-shadow-sm">{fac.name}</span>}
+                                    <span className="font-bold text-xs leading-tight text-slate-800">{tClass?.name || '???'}</span>
+                                    {fac && <span className="text-[9px] font-medium text-slate-700 opacity-90 mt-0.5 px-1 bg-white/40 rounded">{fac.name}</span>}
                                   </div>
                                 )}
                               </div>

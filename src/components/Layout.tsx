@@ -1,5 +1,5 @@
 import { Link, Outlet, useLocation } from "react-router-dom";
-import { LogOut, Calendar, Map, Clock, Settings, UserCircle } from "lucide-react";
+import { LogOut, Calendar, Map, Clock, Settings, UserCircle, List } from "lucide-react";
 import { cn } from "../App";
 import { useFirebaseSync } from "../hooks/useFirebaseSync";
 import { useStore } from "../store/useStore";
@@ -11,6 +11,7 @@ export default function Layout({ onLogout }: { onLogout: () => void }) {
 
   const nav = [
     { name: "Emploi du temps", href: "/schedule", icon: Calendar },
+    { name: "Créneaux (Grille)", href: "/slot-manager", icon: List },
     { name: "Activités & Absences", href: "/activities", icon: Clock },
     { name: "Paramètres", href: "/settings", icon: Settings },
   ];
@@ -20,7 +21,7 @@ export default function Layout({ onLogout }: { onLogout: () => void }) {
   }
 
   return (
-    <div className="flex flex-col h-screen w-full bg-slate-100 text-slate-800 overflow-hidden font-sans">
+    <div className="flex flex-col h-screen w-full bg-slate-100 text-slate-800 overflow-hidden font-sans print:h-auto print:overflow-visible">
       <header className="h-16 flex items-center justify-between px-6 bg-white border-b border-slate-200 shadow-sm shrink-0 z-30 no-print">
         <div className="flex items-center gap-3">
           <div className="w-8 h-8 bg-blue-600 rounded-lg flex items-center justify-center text-white font-bold">E</div>
@@ -34,7 +35,7 @@ export default function Layout({ onLogout }: { onLogout: () => void }) {
         </div>
       </header>
 
-      <div className="flex flex-1 overflow-hidden">
+      <div className="flex flex-1 overflow-hidden print:overflow-visible">
         {/* Sidebar */}
         <nav className="w-64 bg-slate-900 text-slate-300 flex flex-col shrink-0 relative z-20 no-print">
           <div className="p-4 flex flex-col gap-1">
@@ -79,7 +80,7 @@ export default function Layout({ onLogout }: { onLogout: () => void }) {
         </nav>
 
         {/* Main content */}
-        <main className="flex-1 flex flex-col min-w-0 bg-slate-100 overflow-auto">
+        <main className="flex-1 flex flex-col min-w-0 bg-slate-100 overflow-auto print:overflow-visible print:h-auto">
           <Outlet />
         </main>
       </div>
