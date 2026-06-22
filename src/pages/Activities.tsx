@@ -2,7 +2,7 @@ import React, { useState } from "react";
 import { useStore } from "../store/useStore";
 import { db } from "../lib/firebase";
 import { collection, addDoc, deleteDoc, doc, updateDoc } from "firebase/firestore";
-import { Plus, Trash2, Activity as ActivityIcon, CalendarDays, Wand2, Lock, LockOpen } from "lucide-react";
+import { Plus, Trash2, Activity as ActivityIcon, CalendarDays, Wand2, Lock, LockOpen, Printer } from "lucide-react";
 import { getISOWeek, parseISO } from "date-fns";
 
 export default function Activities() {
@@ -25,6 +25,25 @@ export default function Activities() {
   const [absEnd, setAbsEnd] = useState<number>(1);
 
   const [selectedSA, setSelectedSA] = useState<{ id: string, startWeekIdx: number, endWeekIdx: number, isLocked: boolean } | null>(null);
+
+  const [showPrintModal, setShowPrintModal] = useState(false);
+  const [printStartWk, setPrintStartWk] = useState<number>(1);
+  const [printEndWk, setPrintEndWk] = useState<number>(52);
+  const [isPrintingRange, setIsPrintingRange] = useState(false);
+
+  const executePrintRange = () => {
+     setShowPrintModal(false);
+     setIsPrintingRange(true);
+     setTimeout(() => {
+        const style = document.createElement('style');
+        style.innerHTML = `@media print { @page { size: landscape; margin: 5mm; } body { -webkit-print-color-adjust: exact; print-color-adjust: exact; } }`;
+        document.head.appendChild(style);
+        window.print();
+        document.head.removeChild(style);
+        // Wait a frame before restoring so Safari/Chrome print dialogs don't break layout instantly
+        setTimeout(() => setIsPrintingRange(false), 500);
+     }, 100);
+  };
 
   const handleSASubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -136,6 +155,12 @@ export default function Activities() {
 
   const weekNumbers = React.useMemo(() => getWeekNumbers(startW, endW), [startW, endW]);
   const totalWks = weekNumbers.length;
+
+  const actualPrintStartIdx = Math.max(0, printStartWk - 1);
+  const actualPrintEndIdx = Math.min(totalWks, printEndWk);
+  const displayedWeekNumbers = isPrintingRange ? weekNumbers.slice(actualPrintStartIdx, actualPrintEndIdx) : weekNumbers;
+  const displayedTotalWks = displayedWeekNumbers.length;
+  const offsetWks = isPrintingRange ? actualPrintStartIdx : 0;
 
   const isHoliday = (wk: number) => {
     const calendarWeek = weekNumbers[wk - 1];
@@ -469,32 +494,49 @@ export default function Activities() {
         </section>
       </div>
 
-      <div className="bg-white p-6 rounded-xl border border-slate-200 shadow-sm flex flex-col pt-6 mt-8">
-        <div className="flex items-center justify-between mb-6">
+      <div className="bg-white p-6 rounded-xl border border-slate-200 shadow-sm flex flex-col pt-6 mt-8 print:p-0 print:border-none print:shadow-none">
+        <div className="flex items-center justify-between mb-6 print:hidden">
           <div>
             <h3 className="font-bold text-slate-800 text-lg tracking-tight">Planning Annuel Généré</h3>
             <p className="text-slate-500 text-sm mt-1">La répartition optimise l'occupation des installations selon l'emploi du temps des classes (sans chevauchement de créneaux).</p>
           </div>
-          <button 
-            onClick={generateSchedule} 
-            disabled={optimizing || activities.length === 0}
-            className="bg-blue-600 hover:bg-blue-700 disabled:opacity-50 text-white px-5 py-2.5 rounded-lg font-medium text-sm flex items-center gap-2 shadow-sm transition-colors"
-          >
-            <Wand2 className="w-4 h-4" />
-            {optimizing ? "Génération en cours..." : "Générer la répartition"}
-          </button>
+          <div className="flex items-center gap-2">
+            <button 
+              onClick={() => setShowPrintModal(true)} 
+              className="bg-white border border-slate-200 hover:bg-slate-50 text-slate-700 px-4 py-2.5 rounded-lg font-medium text-sm flex items-center gap-2 shadow-sm transition-colors"
+            >
+              <Printer className="w-4 h-4" /> Imprimer
+            </button>
+            <button 
+              onClick={generateSchedule} 
+              disabled={optimizing || activities.length === 0}
+              className="bg-blue-600 hover:bg-blue-700 disabled:opacity-50 text-white px-5 py-2.5 rounded-lg font-medium text-sm flex items-center gap-2 shadow-sm transition-colors"
+            >
+              <Wand2 className="w-4 h-4" />
+              {optimizing ? "Génération en cours..." : "Générer la répartition"}
+            </button>
+          </div>
         </div>
 
+        {isPrintingRange && (
+          <div className="hidden print:block mb-4 text-center">
+            <h2 className="text-xl font-bold text-slate-800">
+              Répartition des Activités - Semaines internes {printStartWk} à {printEndWk}
+            </h2>
+          </div>
+        )}
+
         {scheduledActivities.length > 0 ? (
-          <div className="overflow-x-auto pb-4">
-            <div className="min-w-[800px]">
+          <div className="overflow-x-auto pb-4 print:overflow-visible">
+            <div className="min-w-[800px] print:w-full print:min-w-full">
               <div className="flex border-b border-slate-200 pb-2 mb-2">
-                <div className="w-32 shrink-0 font-semibold text-xs text-slate-500 uppercase">Classe</div>
+                <div className="w-32 print:w-24 shrink-0 font-semibold text-xs text-slate-500 uppercase flex items-center">Classe</div>
                 <div className="flex-1 flex relative">
-                  {weekNumbers.map((calendarWeek, i) => {
-                    const isHol = isHoliday(i + 1);
+                  {displayedWeekNumbers.map((calendarWeek, i) => {
+                    const actualWkIndex = i + 1 + offsetWks;
+                    const isHol = isHoliday(actualWkIndex);
                     return (
-                      <div key={i} className={`flex-1 text-center text-[10px] ${isHol ? 'text-amber-500 font-bold bg-amber-50' : 'text-slate-400'} border-l border-slate-100 first:border-0`} title={`Semaine Calendaire ${calendarWeek}`}>
+                      <div key={i} className={`flex-1 text-center text-[10px] ${isHol ? 'text-amber-500 font-bold bg-amber-50 print:bg-transparent' : 'text-slate-400'} border-l border-slate-100 first:border-0`} title={`Semaine Calendaire ${calendarWeek}`}>
                         {calendarWeek}
                       </div>
                     );
@@ -508,29 +550,34 @@ export default function Activities() {
                   if (mySAs.length === 0) return null;
                   
                   return (
-                    <div key={c.id} className="flex items-center min-h-[32px]">
-                      <div className="w-32 shrink-0 text-sm font-medium text-slate-800 flex flex-col justify-center">
+                    <div key={c.id} className="flex items-center min-h-[32px] print:min-h-[28px]">
+                      <div className="w-32 print:w-24 shrink-0 text-sm font-medium text-slate-800 flex flex-col justify-center">
                          <div className="flex items-center gap-2">
                            <div className="w-2 h-2 rounded-full" style={{ backgroundColor: c.color }} />
-                           {c.name}
+                           <span className="print:text-xs">{c.name}</span>
                          </div>
                          {c.level === 'Terminale' && c.catchUpDate && (
-                           <div className="text-[9px] text-slate-400 truncate mt-0.5" title={`Rattrapages: ${c.catchUpDate}`}>Rattrapage: {c.catchUpDate}</div>
+                           <div className="text-[9px] text-slate-400 truncate mt-0.5 print:hidden" title={`Rattrapages: ${c.catchUpDate}`}>Rattrapage: {c.catchUpDate}</div>
                          )}
                          {c.level === 'Terminale' && c.ccfDeadline && (
                            <div className="text-[9px] text-slate-400 truncate mt-0.5" title={`Arrêt CCF: ${c.ccfDeadline}`}>CCF: {c.ccfDeadline}</div>
                          )}
                       </div>
-                      <div className="flex-1 flex relative h-8 bg-slate-50 rounded-md border border-slate-100 overflow-hidden">
+                      <div className="flex-1 flex relative h-8 print:h-6 bg-slate-50 print:bg-white rounded-md border border-slate-100 overflow-hidden">
                         {/* Draw Holidays Background */}
                         {settings?.holidays?.map(h => {
                             const calWeeks = getWeekNumbers(h.startWeek, h.endWeek);
-                            const startIdx = weekNumbers.indexOf(calWeeks[0]);
-                            const endIdx = weekNumbers.indexOf(calWeeks[calWeeks.length - 1]);
-                            if (startIdx === -1 || endIdx === -1) return null; // out of scope
-                            const left = (startIdx / totalWks) * 100;
-                            const width = ((endIdx - startIdx + 1) / totalWks) * 100;
-                            return <div key={h.id} className="absolute top-0 bottom-0 bg-amber-100/50 mix-blend-multiply" style={{ left: `${left}%`, width: `${width}%` }} title={h.name} />
+                            const hStartIdx = weekNumbers.indexOf(calWeeks[0]);
+                            const hEndIdx = weekNumbers.indexOf(calWeeks[calWeeks.length - 1]);
+                            if (hStartIdx === -1 || hEndIdx === -1) return null; // out of scope
+                            
+                            const renderStart = Math.max(0, hStartIdx - offsetWks);
+                            const renderEnd = Math.min(displayedTotalWks - 1, hEndIdx - offsetWks);
+                            if (renderStart > displayedTotalWks - 1 || renderEnd < 0) return null;
+
+                            const left = (renderStart / displayedTotalWks) * 100;
+                            const width = ((renderEnd - renderStart + 1) / displayedTotalWks) * 100;
+                            return <div key={h.id} className="absolute top-0 bottom-0 bg-amber-100/50 print:bg-amber-50 mix-blend-multiply" style={{ left: `${left}%`, width: `${width}%` }} title={h.name} />
                         })}
 
                         {/* Draw SAs */}
@@ -558,8 +605,17 @@ export default function Activities() {
                           return (
                             <React.Fragment key={sa.id}>
                               {blocks.map((block, idx) => {
-                                const left = Math.max(0, (block.start - 1) / totalWks * 100);
-                                const width = Math.min(100 - left, (block.end - block.start + 1) / totalWks * 100);
+                                const renderStart = block.start - 1 - offsetWks;
+                                const renderEnd = block.end - 1 - offsetWks;
+
+                                if (renderEnd < 0 || renderStart >= displayedTotalWks) return null;
+
+                                const clampedStart = Math.max(0, renderStart);
+                                const clampedEnd = Math.min(displayedTotalWks - 1, renderEnd);
+
+                                const left = (clampedStart / displayedTotalWks) * 100;
+                                const width = ((clampedEnd - clampedStart + 1) / displayedTotalWks) * 100;
+
                                 const calS = weekNumbers[block.start - 1];
                                 const calE = weekNumbers[block.end - 1];
                                 return (
@@ -575,8 +631,8 @@ export default function Activities() {
                                     style={{ left: `${left}%`, width: `${width}%`, backgroundColor: fac?.color || '#e2e8f0' }}
                                     title={`${act?.name} (${fac?.name}) - Sem. ${calS} à ${calE}`}
                                   >
-                                    <div className="text-[10px] font-bold text-white truncate drop-shadow-md flex items-center gap-1">
-                                      {sa.isLocked && <Lock className="w-2.5 h-2.5 shrink-0" />}
+                                    <div className="text-[10px] print:text-[8px] font-bold text-white truncate drop-shadow-md flex items-center gap-1">
+                                      {sa.isLocked && <Lock className="w-2.5 h-2.5 print:w-2 print:h-2 shrink-0" />}
                                       {act?.name}
                                     </div>
                                   </div>
@@ -592,18 +648,20 @@ export default function Activities() {
                           try {
                             const dateObj = parseISO(d.date);
                             const wk = getISOWeek(dateObj);
-                            const idx = weekNumbers.indexOf(wk);
-                            if (idx === -1) return null;
-                            const left = ((idx + 0.5) / totalWks) * 100;
+                            const wIdx = weekNumbers.indexOf(wk);
+                            if (wIdx === -1) return null;
+                            const renderIdx = wIdx - offsetWks;
+                            if (renderIdx < 0 || renderIdx >= displayedTotalWks) return null;
+                            const left = ((renderIdx + 0.5) / displayedTotalWks) * 100;
                             return (
                               <div 
                                 key={d.id} 
                                 className="absolute top-0 w-0.5 bg-red-500 h-full z-10 hover:w-1 hover:bg-red-600 transition-all cursor-crosshair group/date"
                                 style={{ left: `${left}%` }} 
-                                title={`${d.description} (${d.date})`}
+                                title={`${d.description || 'Date importante'} (${d.date})`}
                               >
                                 <div className="hidden group-hover/date:block absolute top-full left-1/2 -translate-x-1/2 mt-1 bg-slate-800 text-white text-[10px] py-0.5 px-1.5 rounded whitespace-nowrap z-20">
-                                  {d.description}
+                                  {d.description || 'Date importante'}
                                 </div>
                               </div>
                             );
@@ -655,6 +713,35 @@ export default function Activities() {
                 <button type="submit" className="flex-1 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-sm font-medium transition-colors">Enregistrer</button>
               </div>
             </form>
+          </div>
+        </div>
+      )}
+      {showPrintModal && (
+        <div className="fixed inset-0 bg-slate-900/40 backdrop-blur-sm flex items-center justify-center z-50 p-4 shrink-0">
+          <div className="bg-white rounded-xl shadow-xl w-full max-w-sm overflow-hidden border border-slate-200">
+            <div className="px-6 py-4 border-b border-slate-100 bg-slate-50 flex justify-between items-center">
+              <h3 className="font-bold text-slate-800">Impression de la Répartition</h3>
+            </div>
+            <div className="p-6 flex flex-col gap-4">
+              <p className="text-sm text-slate-600">Sélectionnez la plage de semaines (internes, de 1 à {totalWks}) que vous souhaitez afficher sur la page.</p>
+              
+              <div className="flex gap-4">
+                <div className="flex-1">
+                  <label className="block text-xs font-semibold text-slate-600 mb-1">Semaine de début</label>
+                  <input type="number" min="1" max={totalWks} value={printStartWk} onChange={e => setPrintStartWk(parseInt(e.target.value) || 1)} className="form-input w-full text-sm rounded-md border-slate-300" />
+                </div>
+                <div className="flex-1">
+                  <label className="block text-xs font-semibold text-slate-600 mb-1">Semaine de fin</label>
+                  <input type="number" min="1" max={totalWks} value={printEndWk} onChange={e => setPrintEndWk(parseInt(e.target.value) || totalWks)} className="form-input w-full text-sm rounded-md border-slate-300" />
+                </div>
+              </div>
+            </div>
+            <div className="px-6 py-3 border-t border-slate-100 bg-slate-50 flex justify-end gap-2">
+              <button type="button" onClick={() => setShowPrintModal(false)} className="px-4 py-2 bg-white border border-slate-300 hover:bg-slate-50 text-slate-700 rounded-md font-medium transition-colors text-sm">Annuler</button>
+              <button type="button" onClick={executePrintRange} className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-md font-medium transition-colors text-sm flex items-center gap-2">
+                <Printer className="w-4 h-4" /> Imprimer
+              </button>
+            </div>
           </div>
         </div>
       )}
