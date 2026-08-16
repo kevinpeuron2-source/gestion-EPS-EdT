@@ -147,10 +147,16 @@ export default function Schedule() {
         }
       `;
       document.head.appendChild(style);
+      
+      const afterPrint = () => {
+         setPrintMode(null);
+         if (document.head.contains(style)) document.head.removeChild(style);
+         window.removeEventListener('afterprint', afterPrint);
+      };
+      window.addEventListener('afterprint', afterPrint);
+      
       window.print();
-      document.head.removeChild(style);
-      setPrintMode(null);
-    }, 200);
+    }, 300);
   };
 
   return (

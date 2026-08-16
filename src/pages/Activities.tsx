@@ -39,11 +39,16 @@ export default function Activities() {
         const style = document.createElement('style');
         style.innerHTML = `@media print { @page { size: A4 landscape; margin: 5mm; } body { -webkit-print-color-adjust: exact; print-color-adjust: exact; } }`;
         document.head.appendChild(style);
+        
+        const afterPrint = () => {
+           setIsPrintingRange(false);
+           if (document.head.contains(style)) document.head.removeChild(style);
+           window.removeEventListener('afterprint', afterPrint);
+        };
+        window.addEventListener('afterprint', afterPrint);
+        
         window.print();
-        document.head.removeChild(style);
-        // Wait a frame before restoring so Safari/Chrome print dialogs don't break layout instantly
-        setTimeout(() => setIsPrintingRange(false), 500);
-     }, 100);
+     }, 300);
   };
 
   const handleSASubmit = async (e: React.FormEvent) => {
