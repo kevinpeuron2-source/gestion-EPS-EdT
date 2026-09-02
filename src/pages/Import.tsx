@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Upload, AlertCircle, CheckCircle2 } from 'lucide-react';
+import { Upload, AlertCircle, CheckCircle2, Trash2, AlertTriangle } from 'lucide-react';
 import { useStore } from '../store/useStore';
 import { Course } from '../types';
 import { db } from '../lib/firebase';
@@ -7,12 +7,74 @@ import { collection, writeBatch, doc } from 'firebase/firestore';
 import { getISOWeek } from 'date-fns';
 
 export default function Import() {
-  const { teachers, classes, facilities, courses } = useStore();
+  const { teachers, classes, facilities, courses, absences, scheduledActivities, activities } = useStore();
+  const [deleteTarget, setDeleteTarget] = useState<string>('');
+  const [deleteStep, setDeleteStep] = useState<number>(0);
+  const [isDeleting, setIsDeleting] = useState(false);
   const [selectedTeacherId, setSelectedTeacherId] = useState<string>('');
   const [fileContent, setFileContent] = useState<string>('');
   const [status, setStatus] = useState<{ type: 'idle' | 'success' | 'error' | 'loading'; message: string }>({ type: 'idle', message: '' });
 
   const DAYS = ['Dimanche', 'Lundi', 'Mardi', 'Mercredi', 'Jeudi', 'Vendredi', 'Samedi'];
+
+  
+  const handleDelete = async () => {
+    if (deleteStep !== 2) return;
+    setIsDeleting(true);
+    setStatus({ type: 'loading', message: 'Suppression en cours...' });
+
+    try {
+      const batch = writeBatch(db);
+      let coursesToDelete = [];
+
+      if (deleteTarget === 'all') {
+        coursesToDelete = courses;
+      } else if (deleteTarget) {
+        coursesToDelete = courses.filter(c => c.teacherId === deleteTarget);
+      }
+
+      // Delete the courses
+      coursesToDelete.forEach(c => {
+        batch.delete(doc(db, "courses", c.id));
+      });
+
+      // Cleanup orphan classes
+      const remainingCourses = courses.filter(c => !coursesToDelete.some(d => d.id === c.id));
+      const classIdsInUse = new Set(remainingCourses.map(c => c.classId));
+      
+      const orphanClasses = classes.filter(c => !classIdsInUse.has(c.id));
+      orphanClasses.forEach(c => {
+        batch.delete(doc(db, "classes", c.id));
+        
+        // Also cleanup associated absences and scheduledActivities
+        absences.filter(a => a.classId === c.id).forEach(a => {
+           batch.delete(doc(db, "absences", a.id));
+        });
+        scheduledActivities.filter(sa => sa.classId === c.id).forEach(sa => {
+           batch.delete(doc(db, "scheduledActivities", sa.id));
+        });
+        
+        // Cleanup activities classIds
+        activities.forEach(act => {
+           if (act.classIds?.includes(c.id)) {
+              const newIds = act.classIds.filter((id) => id !== c.id);
+              batch.update(doc(db, "activities", act.id), { classIds: newIds });
+           }
+        });
+      });
+
+      await batch.commit();
+      
+      setStatus({ type: 'success', message: `Suppression réussie ! ${coursesToDelete.length} créneaux et ${orphanClasses.length} classes orphelines supprimés.` });
+    } catch(err) {
+      console.error(err);
+      setStatus({ type: 'error', message: 'Erreur lors de la suppression.' });
+    } finally {
+      setIsDeleting(false);
+      setDeleteStep(0);
+      setDeleteTarget('');
+    }
+  };
 
   const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -280,6 +342,65 @@ export default function Import() {
             >
               Lancer l'importation
             </button>
+          </div>
+        </div>
+
+        
+        <div className="mt-8 max-w-2xl bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden">
+          <div className="bg-red-50 border-b border-red-100 px-6 py-4 flex items-center gap-2">
+             <AlertTriangle className="w-5 h-5 text-red-600" />
+             <h2 className="text-base font-bold text-red-800">Zone de danger (Suppression)</h2>
+          </div>
+          <div className="p-6 space-y-4">
+             <p className="text-sm text-slate-600">
+               Vous pouvez supprimer les emplois du temps importés. Cela nettoiera automatiquement les classes qui ne sont plus associées à aucun créneau.
+             </p>
+             
+             <div className="flex gap-4 items-end">
+               <div className="flex-1">
+                 <label className="block text-xs font-semibold text-slate-700 mb-2">Cible de la suppression</label>
+                 <select 
+                   value={deleteTarget} 
+                   onChange={(e) => {
+                     setDeleteTarget(e.target.value);
+                     setDeleteStep(0);
+                   }}
+                   className="w-full form-select rounded-md border-slate-300 text-sm shadow-sm"
+                   disabled={isDeleting || deleteStep > 0}
+                 >
+                   <option value="">-- Choisir --</option>
+                   <option value="all" className="font-bold text-red-600">🚨 TOUS LES EMPLOIS DU TEMPS</option>
+                   {teachers.map(t => (
+                     <option key={t.id} value={t.id}>Emploi du temps de : {t.name}</option>
+                   ))}
+                 </select>
+               </div>
+               
+               {deleteTarget && (
+                 <div className="shrink-0">
+                   {deleteStep === 0 && (
+                     <button onClick={() => setDeleteStep(1)} className="px-4 py-2 bg-red-100 text-red-700 hover:bg-red-200 rounded-lg font-medium text-sm transition-colors">
+                        Supprimer...
+                     </button>
+                   )}
+                   {deleteStep === 1 && (
+                     <div className="flex gap-2">
+                       <button onClick={() => setDeleteStep(0)} className="px-3 py-2 bg-slate-100 text-slate-700 hover:bg-slate-200 rounded-lg font-medium text-sm transition-colors">
+                          Annuler
+                       </button>
+                       <button onClick={() => setDeleteStep(2)} className="px-4 py-2 bg-red-600 text-white hover:bg-red-700 rounded-lg font-bold text-sm transition-colors shadow-sm animate-pulse">
+                          Confirmer définitivement
+                       </button>
+                     </div>
+                   )}
+                   {deleteStep === 2 && (
+                     <button onClick={handleDelete} disabled={isDeleting} className="px-6 py-2 bg-red-700 text-white rounded-lg font-bold text-sm shadow-sm opacity-90">
+                        {isDeleting ? 'Suppression...' : 'Cliquer pour exécuter'}
+                     </button>
+                   )}
+                 </div>
+               )}
+             </div>
           </div>
         </div>
 
