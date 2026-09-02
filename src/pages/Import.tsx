@@ -2,12 +2,14 @@ import React, { useState } from 'react';
 import { Upload, AlertCircle, CheckCircle2 } from 'lucide-react';
 import { useStore } from '../store/useStore';
 import { Course } from '../types';
+import { db } from '../lib/firebase';
+import { collection, writeBatch, doc } from 'firebase/firestore';
 
 export default function Import() {
-  const { teachers, classes, setClasses, courses, setCourses, facilities } = useStore();
+  const { teachers, classes, facilities } = useStore();
   const [selectedTeacherId, setSelectedTeacherId] = useState<string>('');
   const [fileContent, setFileContent] = useState<string>('');
-  const [status, setStatus] = useState<{ type: 'idle' | 'success' | 'error'; message: string }>({ type: 'idle', message: '' });
+  const [status, setStatus] = useState<{ type: 'idle' | 'success' | 'error' | 'loading'; message: string }>({ type: 'idle', message: '' });
 
   const DAYS = ['Dimanche', 'Lundi', 'Mardi', 'Mercredi', 'Jeudi', 'Vendredi', 'Samedi'];
 
@@ -40,7 +42,7 @@ export default function Import() {
     }
   };
 
-  const handleImport = () => {
+  const handleImport = async () => {
     if (!selectedTeacherId) {
       setStatus({ type: 'error', message: 'Veuillez sélectionner un enseignant.' });
       return;
@@ -158,9 +160,35 @@ export default function Import() {
         importedCount++;
       });
 
-      setClasses(newClasses);
-      setCourses(newCourses);
-      setStatus({ type: 'success', message: `${importedCount} créneaux importés avec succès pour l'enseignant sélectionné.` });
+      setStatus({ type: 'loading', message: `Sauvegarde de ${importedCount} créneaux en cours...` });
+
+      const batch = writeBatch(db);
+
+      // Add new classes
+      const newCreatedClasses = newClasses.filter(c => !classes.some(existing => existing.id === c.id));
+      newCreatedClasses.forEach(c => {
+        const docRef = doc(collection(db, "classes"));
+        c.id = docRef.id; // Assign real firestore ID
+        batch.set(docRef, c);
+      });
+
+      // We need to update the courses array with the new class IDs if they were just created
+      const coursesToSave = newCourses.filter(c => !courses.some(existing => existing.id === c.id));
+      coursesToSave.forEach(course => {
+        // Find if this course's classId matches one of the new classes (using the old temporary ID)
+        const matchedNewClass = newCreatedClasses.find(c => c.name === newClasses.find(nc => nc.id === course.classId)?.name);
+        if (matchedNewClass) {
+          course.classId = matchedNewClass.id;
+        }
+
+        const docRef = doc(collection(db, "courses"));
+        course.id = docRef.id;
+        batch.set(docRef, course);
+      });
+
+      await batch.commit();
+
+      setStatus({ type: 'success', message: `${importedCount} créneaux importés et sauvegardés avec succès !` });
       setFileContent('');
 
     } catch (err) {

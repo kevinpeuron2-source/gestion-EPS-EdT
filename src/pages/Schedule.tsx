@@ -1,9 +1,11 @@
 import React, { useState } from "react";
 import { useStore } from "../store/useStore";
-import { Printer, Users, User, X, Trash2, Plus, Edit } from "lucide-react";
+import { Printer, Users, User, X, Trash2, Plus, Edit, ChevronLeft, ChevronRight, Calendar as CalendarIcon } from "lucide-react";
 import { db } from "../lib/firebase";
 import { collection, addDoc, deleteDoc, doc, updateDoc } from "firebase/firestore";
 import { Course } from "../types";
+import { startOfWeek, addDays, getISOWeek, format, subWeeks, addWeeks } from "date-fns";
+import { fr } from "date-fns/locale";
 
 const DAYS = ["Lundi", "Mardi", "Mercredi", "Jeudi", "Vendredi"];
 const TIME_START = 8;
@@ -19,6 +21,9 @@ const timeToMinutes = (timeStr: string) => {
 
 export default function Schedule() {
   const { teachers, classes, facilities, courses, activities, scheduledActivities, absences, settings } = useStore();
+  
+  const [currentDate, setCurrentDate] = useState(new Date());
+  
   const [showPrintModal, setShowPrintModal] = useState(false);
   const [printMode, setPrintMode] = useState<'global' | 'teachers' | null>(null);
   const [selectingTeachers, setSelectingTeachers] = useState(false);
@@ -62,6 +67,59 @@ export default function Schedule() {
     }
     return weeks;
   };
+
+  const currentCalendarWeek = getISOWeek(currentDate);
+  const startW = settings?.startWeek || 36;
+  const endW = settings?.endWeek || 26;
+  const weekNumbers = getWeekNumbers(startW, endW);
+  const currentInternalWeek = weekNumbers.indexOf(currentCalendarWeek) + 1;
+  const isWeekA = currentCalendarWeek % 2 === 0;
+
+  const currentWeekPeriod = React.useMemo(() => {
+    const sigObj: any = {};
+    const hStartWeeks = settings?.holidays?.map(h => getWeekNumbers(h.startWeek, h.endWeek)).flat() || [];
+    const isHoli = hStartWeeks.includes(currentCalendarWeek);
+
+    const checkIfAbsent = (cId: string) => {
+      if (absences.some(a => a.classId === cId && currentCalendarWeek >= a.startWeek && currentCalendarWeek <= a.endWeek)) return true;
+      const cls = classes.find(c => c.id === cId);
+      if (cls?.internships && currentInternalWeek > 0) {
+        if (cls.internships.some(i => currentInternalWeek >= i.startWeek && currentInternalWeek <= i.endWeek)) return true;
+      }
+      return false;
+    };
+
+    courses.forEach(c => {
+       const absent = isHoli || checkIfAbsent(c.classId);
+       let facId = c.facilityId;
+       if (!absent && currentInternalWeek > 0) {
+          const sa = scheduledActivities.find(sa => sa.classId === c.classId && currentInternalWeek >= sa.startWeek && currentInternalWeek <= sa.endWeek);
+          if (sa) {
+             const act = activities.find(a => a.id === sa.activityId);
+             if (act && act.facilityId) facId = act.facilityId;
+          }
+       }
+       sigObj[c.id] = absent ? "ABS" : facId;
+    });
+
+    return {
+       id: 'current',
+       isHoliday: isHoli,
+       filter: (course: Course) => {
+          if (course.weekType && course.weekType !== 'ALL') {
+             if (isWeekA && course.weekType === 'B') return false;
+             if (!isWeekA && course.weekType === 'A') return false;
+          }
+          return sigObj[course.id] !== "ABS";
+       },
+       getFacility: (course: Course) => {
+          const facId = sigObj[course.id];
+          if (facId && facId !== "ABS") return facilities.find(f => f.id === facId);
+          return facilities.find(f => f.id === course.facilityId);
+       },
+       isAbsent: (course: Course) => sigObj[course.id] === "ABS"
+    };
+  }, [currentCalendarWeek, currentInternalWeek, isWeekA, courses, absences, classes, scheduledActivities, activities, facilities, settings]);
 
   const periods = React.useMemo(() => {
     if (printType === 'neutral') return [{ id: 'neutral', name: 'Neutre', filter: () => true, getFacility: (course: any) => facilities.find(f => f.id === course.facilityId), isAbsent: () => false }];
@@ -215,14 +273,23 @@ export default function Schedule() {
   const saveCourse = async (e: React.FormEvent) => {
     e.preventDefault();
     try {
+      const payload: any = {};
+      Object.entries(editingCourse).forEach(([key, value]) => {
+        if (value !== undefined) {
+          payload[key] = value;
+        }
+      });
+      
       if (editingCourse.id) {
-        const { id, ...data } = editingCourse;
+        const { id, ...data } = payload;
         await updateDoc(doc(db, "courses", id), data);
       } else {
-        await addDoc(collection(db, "courses"), editingCourse);
+        await addDoc(collection(db, "courses"), payload);
       }
       setShowCourseModal(false);
-    } catch (err) {}
+    } catch (err) {
+      console.error(err);
+    }
   };
 
   const deleteCourse = async () => {
@@ -233,6 +300,8 @@ export default function Schedule() {
     } catch (err) {}
   };
 
+  const activePeriods = printMode ? periods : [currentWeekPeriod];
+
   return (
     <div className="h-full flex flex-col bg-slate-50">
       {/* Header (Hidden when printing usually, but we also use screen-only classes) */}
@@ -241,19 +310,40 @@ export default function Schedule() {
           <h1 className="text-2xl font-bold text-slate-800 tracking-tight">Emploi du temps global</h1>
           <p className="text-sm text-slate-500">Vue de l'emploi du temps par jour et par enseignant.</p>
         </div>
-        <button onClick={handleOpenPrintModal} className="bg-white border border-slate-200 hover:bg-slate-50 text-slate-700 px-4 py-2 rounded-md font-medium flex items-center gap-2 shadow-sm transition-colors">
-          <Printer className="w-4 h-4" /> Imprimer (Paysage)
-        </button>
+        <div className="flex items-center gap-4 flex-wrap">
+           {/* Date Navigator */}
+           <div className="flex items-center bg-white border border-slate-200 rounded-lg p-1 shadow-sm">
+              <button onClick={() => setCurrentDate(subWeeks(currentDate, 1))} className="p-1 hover:bg-slate-100 rounded-md transition-colors">
+                 <ChevronLeft className="w-5 h-5 text-slate-600" />
+              </button>
+              <div className="px-4 py-1 flex items-center gap-2 min-w-[200px] justify-center" onClick={() => setCurrentDate(new Date())} title="Revenir à aujourd'hui">
+                 <CalendarIcon className="w-4 h-4 text-blue-600 cursor-pointer" />
+                 <span className="font-semibold text-slate-800 text-sm cursor-pointer hover:text-blue-600">
+                    Sem. du {format(startOfWeek(currentDate, { weekStartsOn: 1 }), "d MMM", { locale: fr })}
+                 </span>
+                 <span className="text-xs text-slate-500 font-medium ml-1">
+                    (Sem. {isWeekA ? 'A' : 'B'})
+                 </span>
+              </div>
+              <button onClick={() => setCurrentDate(addWeeks(currentDate, 1))} className="p-1 hover:bg-slate-100 rounded-md transition-colors">
+                 <ChevronRight className="w-5 h-5 text-slate-600" />
+              </button>
+           </div>
+           
+           <button onClick={handleOpenPrintModal} className="bg-white border border-slate-200 hover:bg-slate-50 text-slate-700 px-4 py-2 rounded-md font-medium flex items-center gap-2 shadow-sm transition-colors">
+             <Printer className="w-4 h-4" /> Imprimer
+           </button>
+        </div>
       </header>
 
       {/* Main scrolling view for screen (hidden when we want to print ONLY teachers) */}
       <div className={`flex-1 overflow-auto bg-slate-50 flex items-start flex-col ${printMode === 'teachers' ? 'print:hidden' : 'print:p-0 print:overflow-visible'}`}>
-        {periods.map(period => (
-          <div key={period.id} className={`w-full flex-1 flex items-start ${printMode && periods.length > 1 ? 'print:page-break-after-always pb-8' : ''}`}>
+        {activePeriods.map(period => (
+          <div key={period.id} className={`w-full flex-1 flex items-start ${printMode && activePeriods.length > 1 ? 'print:page-break-after-always pb-8' : ''}`}>
             <div className={`flex flex-row w-max min-w-full relative ${printMode === 'teachers' ? '' : 'print:w-max'}`}>
               
               {/* Optional Title for Planification Mode Print */}
-              {printMode && periods.length > 1 && (
+              {printMode && activePeriods.length > 1 && (
                 <div className="absolute -top-12 left-0 font-bold text-xl hidden print:block">Emploi du temps global - {period.name}</div>
               )}
 
@@ -271,11 +361,16 @@ export default function Schedule() {
     
               {/* Days */}
               <div className="flex flex-row flex-1">
-                {DAYS.map(day => (
+                {DAYS.map((day, dIdx) => (
                   <div key={day} className="flex flex-col border-r-2 border-slate-300 last:border-r-0 flex-1 min-w-0">
                     {/* Day Header */}
-                    <div className={`h-8 bg-slate-800 text-white text-sm font-bold flex items-center justify-center ${printMode === 'teachers' ? '' : 'print:bg-slate-200 print:text-black print:border-b print:border-slate-300'}`}>
-                      {day}
+                    <div className={`h-8 bg-slate-800 text-white text-sm font-bold flex items-center justify-center gap-1 ${printMode === 'teachers' ? '' : 'print:bg-slate-200 print:text-black print:border-b print:border-slate-300'}`}>
+                      <span>{day}</span>
+                      {!printMode && (
+                         <span className="text-xs font-medium opacity-80">
+                            {format(addDays(startOfWeek(currentDate, { weekStartsOn: 1 }), dIdx), "d/MM")}
+                         </span>
+                      )}
                     </div>
                     {/* Teachers Header */}
                     <div className="flex flex-row h-8 border-b border-slate-200 bg-white">
@@ -300,12 +395,12 @@ export default function Schedule() {
                             onClick={(e) => handleGridClick(day, teacher.id, e)}
                             className={`w-24 ${printMode === 'teachers' ? '' : 'print:w-20'} shrink-0 relative border-r border-slate-100 last:border-r-0 cursor-pointer hover:bg-blue-50/30 transition-colors ${tIdx % 2 !== 0 ? 'bg-slate-50/50 ' + (printMode === 'teachers' ? '' : 'print:bg-transparent') : ''}`}
                           >
-                            {dayCourses.filter(printMode ? period.filter : () => true).map(course => {
+                            {dayCourses.filter(period.filter).map(course => {
                                 const startMins = timeToMinutes(course.startTime) - TIME_START * 60;
                                 const dur = timeToMinutes(course.endTime) - timeToMinutes(course.startTime);
                                 const tClass = classes.find(c => c.id === course.classId);
-                                const fac = printMode ? period.getFacility(course) : facilities.find(f => f.id === course.facilityId);
-                                const isAbsent = printMode ? period.isAbsent(course) : false;
+                                const fac = period.getFacility(course);
+                                const isAbsent = period.isAbsent(course);
                                 const isUnavail = course.isUnavailability;
                                 const bgColor = isUnavail ? '#f1f5f9' : (fac?.color || tClass?.color || '#e2e8f0');
     
@@ -325,6 +420,8 @@ export default function Schedule() {
                                       <div className="text-[8px] font-mono leading-none text-slate-700/90 mb-0.5">{course.startTime}-{course.endTime}</div>
                                       {isUnavail ? (
                                         <div className="text-[9px] font-bold uppercase text-slate-600 truncate">{course.reason || 'Indispo'}</div>
+                                      ) : isAbsent ? (
+                                        <div className="text-[9px] font-bold uppercase text-red-600 bg-red-100 px-1 py-0.5 rounded inline-block truncate mt-1">Absent</div>
                                       ) : (
                                         <>
                                           <div className="font-bold text-[10px] leading-tight text-slate-800 truncate">{tClass?.name || '?'}</div>
@@ -474,7 +571,8 @@ export default function Schedule() {
                                  const dur = timeToMinutes(course.endTime) - timeToMinutes(course.startTime);
                                  const tClass = classes.find(c => c.id === course.classId);
                                  const fac = period.getFacility(course);
-                                 const isUnavail = period.isAbsent(course) || course.isUnavailability;
+                                 const isAbsent = period.isAbsent(course);
+                                 const isUnavail = course.isUnavailability;
                                  const bgColor = isUnavail ? '#f1f5f9' : (fac?.color || tClass?.color || '#e2e8f0');
      
                                  return (
@@ -488,8 +586,10 @@ export default function Schedule() {
                                      }}
                                    >
                                      <div className="text-[10px] font-mono font-bold text-slate-700/90 leading-none mb-1">{course.startTime}-{course.endTime}</div>
-                                     {isUnavail ? (
+                                     {course.isUnavailability ? (
                                        <div className="text-xs font-bold uppercase text-slate-800">{course.reason || 'Indisponible'}</div>
+                                     ) : period.isAbsent(course) ? (
+                                       <div className="text-xs font-bold uppercase text-red-600 bg-red-100 px-1.5 py-0.5 rounded inline-block mt-1">Absent</div>
                                      ) : (
                                        <>
                                          <div className="font-bold text-sm text-slate-900 leading-tight">{tClass?.name || 'Classe inconnue'}</div>
