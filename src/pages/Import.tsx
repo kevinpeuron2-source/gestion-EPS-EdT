@@ -10,6 +10,7 @@ export default function Import() {
   const { teachers, classes, facilities, courses } = useStore();
     const [selectedTeacherId, setSelectedTeacherId] = useState<string>('');
   const [fileContent, setFileContent] = useState<string>('');
+  const [importWeekType, setImportWeekType] = useState<'AUTO' | 'ALL' | 'A' | 'B'>('AUTO');
   const [status, setStatus] = useState<{ type: 'idle' | 'success' | 'error' | 'loading'; message: string }>({ type: 'idle', message: '' });
 
   const DAYS = ['Dimanche', 'Lundi', 'Mardi', 'Mercredi', 'Jeudi', 'Vendredi', 'Samedi'];
@@ -87,7 +88,7 @@ export default function Import() {
       let importedCount = 0;
 
       // Group slots by time and class to detect week parity
-      const groupedSlots = new Map<string, { weeks: Set<number>, dayOfWeek: string, startTime: string, endTime: string, className: string, facilityId: string }>();
+      const groupedSlots = new Map<string, { weeks: Set<number>, dayOfWeek: string, startTime: string, endTime: string, className: string, facilityId: string, explicitWeekType: 'A' | 'B' | null }>();
 
       events.forEach(ev => {
         const start = parseICSDate(ev.DTSTART);
@@ -100,42 +101,47 @@ export default function Import() {
         const endTimeStr = `${end.getHours().toString().padStart(2, '0')}:${end.getMinutes().toString().padStart(2, '0')}`;
         const weekNum = getISOWeek(start);
 
-        const rawSummary = (ev.SUMMARY || '').replace(/\\n/g, ' ').replace(/\\,/g, ',');
-        const location = (ev.LOCATION || '').replace(/\\n/g, ' ').replace(/\\,/g, ',').trim();
+        
+        const rawSummary = (ev.SUMMARY || '').replace(/\\,/g, ',');
+        const location = (ev.LOCATION || '').replace(/\\,/g, ',').trim();
+        const rawDesc = (ev.DESCRIPTION || '').replace(/\\,/g, ',');
         
         // Skip unavailabilities
         if (rawSummary.toLowerCase().includes('indisponible') || rawSummary.toLowerCase().includes('ferié') || rawSummary.toLowerCase().includes('vacances')) {
           return;
         }
 
-        const rawDescParts = (ev.DESCRIPTION || '').split(/\\n/);
-        let className = "";
-        
-        for (const part of rawDescParts) {
-           const cleanPart = part.replace(/\\,/g, ',');
-           if (cleanPart.toLowerCase().startsWith('classe') || cleanPart.toLowerCase().startsWith('classes')) {
-              className = cleanPart.split(':')[1]?.trim() || '';
-              break;
-           }
-           if (cleanPart.toLowerCase().startsWith('groupe') || cleanPart.toLowerCase().startsWith('groupes')) {
-              className = cleanPart.split(':')[1]?.trim() || '';
-              break;
-           }
-        }
-        
-        if (!className) {
-            const parts = rawSummary.split('-').map(p => p.trim());
-            const maybeClass = parts.find(p => /[0-9]/.test(p) || p.toLowerCase().includes('eme') || p.toLowerCase().includes('nde')) || parts.pop() || rawSummary.trim();
-            className = maybeClass;
-            
-            if (className.length > 20) {
-                className = className.substring(0, 20).trim();
+        // --- Extract Class Name ---
+        let className = null;
+        const lines = rawDesc.split(/\\[nN]/);
+        for (const line of lines) {
+            if (/^(?:Classes?|Groupes?)\s*[:\-]?/i.test(line)) {
+                className = line.replace(/^(?:Classes?|Groupes?)\s*[:\-]?/i, '').trim();
+                break;
             }
         }
-        
-        if (!className) className = "Classe Inconnue";
+        if (!className) {
+            const pattern = /\b((?:6|5|4|3)(?:[eè]me|e)?\s*[a-z0-9]*|(?:2nde|1[eè]re|Tle|Terminale|Term|2de)\s*[a-z0-9]*)\b/i;
+            const pMatch = (rawSummary + ' ' + rawDesc).match(pattern);
+            if (pMatch) {
+                className = pMatch[1].trim().toUpperCase();
+            }
+        }
+        if (!className) {
+            const parts = rawSummary.split('-').map(p => p.trim());
+            className = parts.find(p => /[0-9]/.test(p)) || parts.pop();
+        }
+        className = className || "Classe Inconnue";
+        if (className.length > 30) className = className.substring(0, 30).trim();
+
+        // --- Extract Explicit Week Type ---
+        let explicitWeekType = null;
+        const fullText = rawSummary + ' ' + rawDesc;
+        if (/semaine\s*A/i.test(fullText) || /Q1/i.test(fullText) || /quinzaine\s*1/i.test(fullText)) explicitWeekType = 'A';
+        else if (/semaine\s*B/i.test(fullText) || /Q2/i.test(fullText) || /quinzaine\s*2/i.test(fullText)) explicitWeekType = 'B';
 
         let facilityId = "";
+
         if (location) {
            const fac = facilities.find(f => f.name.toLowerCase() === location.toLowerCase());
            if (fac) facilityId = fac.id;
@@ -143,23 +149,28 @@ export default function Import() {
 
         const slotKey = `${dayOfWeek}-${startTimeStr}-${endTimeStr}-${className}`;
         if (!groupedSlots.has(slotKey)) {
-           groupedSlots.set(slotKey, { weeks: new Set(), dayOfWeek, startTime: startTimeStr, endTime: endTimeStr, className, facilityId });
+           groupedSlots.set(slotKey, { weeks: new Set<number>(), dayOfWeek, startTime: startTimeStr, endTime: endTimeStr, className, facilityId, explicitWeekType });
         }
         groupedSlots.get(slotKey)!.weeks.add(weekNum);
       });
 
       groupedSlots.forEach((slotData) => {
         // Determine week type
+        
         let weekType: 'ALL' | 'A' | 'B' = 'ALL';
         const weeksArray = Array.from(slotData.weeks);
         
-        // Check if there are weeks specified and we have a small sample size that makes it look like A or B
-        if (weeksArray.length > 0) {
+        if (importWeekType !== 'AUTO') {
+            weekType = importWeekType;
+        } else if (slotData.explicitWeekType) {
+            weekType = slotData.explicitWeekType;
+        } else if (weeksArray.length > 2) {
            const allEven = weeksArray.every(w => w % 2 === 0);
            const allOdd = weeksArray.every(w => w % 2 !== 0);
            if (allEven) weekType = 'A';
            else if (allOdd) weekType = 'B';
         }
+
 
         // Find or create class
         let classObj = newClasses.find(c => c.name.toLowerCase() === slotData.className.toLowerCase());
@@ -273,7 +284,23 @@ export default function Import() {
             </div>
           </div>
 
+          
+          <div>
+            <label className="block text-sm font-semibold text-slate-700 mb-2">3. Assigner ces créneaux à :</label>
+            <select 
+              value={importWeekType}
+              onChange={(e) => setImportWeekType(e.target.value as any)}
+              className="w-full form-select rounded-md border-slate-300 shadow-sm"
+            >
+              <option value="AUTO">Automatique (Lu dans le fichier ou par quinzaine)</option>
+              <option value="ALL">Toutes les semaines (Forcer)</option>
+              <option value="A">Semaine A Uniquement (Forcer)</option>
+              <option value="B">Semaine B Uniquement (Forcer)</option>
+            </select>
+            <p className="text-xs text-slate-500 mt-1">Si vous n'avez exporté qu'une seule semaine depuis Pronote, forcez son type ici.</p>
+          </div>
           <div className="pt-4 border-t border-slate-100 flex justify-end">
+
             <button 
               onClick={handleImport}
               disabled={!fileContent || !selectedTeacherId}
