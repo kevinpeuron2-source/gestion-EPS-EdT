@@ -4,7 +4,7 @@ import { useStore } from '../store/useStore';
 import { Course } from '../types';
 
 export default function Import() {
-  const { teachers, classes, setClasses, courses, setCourses } = useStore();
+  const { teachers, classes, setClasses, courses, setCourses, facilities } = useStore();
   const [selectedTeacherId, setSelectedTeacherId] = useState<string>('');
   const [fileContent, setFileContent] = useState<string>('');
   const [status, setStatus] = useState<{ type: 'idle' | 'success' | 'error'; message: string }>({ type: 'idle', message: '' });
@@ -25,13 +25,16 @@ export default function Import() {
 
   const parseICSDate = (dateStr: string) => {
     if (!dateStr) return null;
+    const match = dateStr.match(/(\d{4})(\d{2})(\d{2})T(\d{2})(\d{2})(\d{2})(Z?)/);
+    if (!match) return null;
+
     try {
-      const year = dateStr.substring(0, 4);
-      const month = dateStr.substring(4, 6);
-      const day = dateStr.substring(6, 8);
-      const hour = dateStr.substring(9, 11);
-      const min = dateStr.substring(11, 13);
-      return new Date(`${year}-${month}-${day}T${hour}:${min}:00`);
+      const [_, year, month, day, hour, min, sec, isUTC] = match;
+      if (isUTC) {
+        return new Date(Date.UTC(parseInt(year), parseInt(month) - 1, parseInt(day), parseInt(hour), parseInt(min), parseInt(sec)));
+      } else {
+        return new Date(parseInt(year), parseInt(month) - 1, parseInt(day), parseInt(hour), parseInt(min), parseInt(sec));
+      }
     } catch {
       return null;
     }
@@ -97,18 +100,31 @@ export default function Import() {
         if (seenSlots.has(slotKey)) return;
         seenSlots.add(slotKey);
 
-        // Try to find the class in SUMMARY or DESCRIPTION
-        const summary = ev.SUMMARY || '';
-        const description = ev.DESCRIPTION || '';
+        // Extract class and location
+        const rawSummary = (ev.SUMMARY || '').replace(/\\n/g, ' ').replace(/\\,/g, ',');
+        const rawDesc = (ev.DESCRIPTION || '').replace(/\\n/g, ' ').replace(/\\,/g, ',');
+        const location = (ev.LOCATION || '').replace(/\\n/g, ' ').replace(/\\,/g, ',').trim();
         
-        // Very basic heuristic for class extraction: typical classes like "2nde A", "1G1", "Terminale"
-        // Let's just use the SUMMARY if it's short, or a generic placeholder.
-        let className = summary.split('\\n')[0].trim();
-        if (className.length > 20) {
-            className = className.substring(0, 20); // Truncate just in case
+        let className = "";
+        
+        // Skip unavailabilities
+        if (rawSummary.toLowerCase().includes('indisponible') || rawSummary.toLowerCase().includes('ferié') || rawSummary.toLowerCase().includes('vacances')) {
+          return;
+        }
+
+        // Try to find "Classe : 2nde A" in description (Typical in Pronote)
+        const classMatch = rawDesc.match(/Classe[s]?\s*:\s*(.+?)(?:$|Matière|Prof|Salle|Groupe)/i);
+        if (classMatch && classMatch[1].trim()) {
+            className = classMatch[1].trim();
+        } else {
+            // Fallback: take the first part of the summary or whatever is available
+            className = rawSummary.split('-').pop()?.trim() || rawSummary.trim();
+            if (className.length > 20) {
+                className = className.substring(0, 20).trim();
+            }
         }
         
-        if (!className || className.toLowerCase().includes('indisponible')) return; // skip unavailabilities for now, or handle them later
+        if (!className) className = "Classe Inconnue";
 
         // Find or create class
         let classObj = newClasses.find(c => c.name.toLowerCase() === className.toLowerCase());
@@ -122,10 +138,17 @@ export default function Import() {
           newClasses.push(classObj);
         }
 
+        let facilityId = "";
+        if (location) {
+           const fac = facilities.find(f => f.name.toLowerCase() === location.toLowerCase());
+           if (fac) facilityId = fac.id;
+        }
+
         newCourses.push({
           id: `course-${Date.now()}-${Math.random().toString(36).substring(2,9)}`,
           teacherId: selectedTeacherId,
           classId: classObj.id,
+          facilityId,
           dayOfWeek,
           startTime: startTimeStr,
           endTime: endTimeStr,
