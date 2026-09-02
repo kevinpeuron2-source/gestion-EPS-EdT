@@ -2,14 +2,40 @@ import React, { useState } from "react";
 import { useStore } from "../store/useStore";
 import { db } from "../lib/firebase";
 import { collection, addDoc, deleteDoc, doc, updateDoc } from "firebase/firestore";
-import { Plus, Trash2, Activity as ActivityIcon, CalendarDays, Wand2, Lock, LockOpen, Printer } from "lucide-react";
+import { Plus, Trash2, Activity as ActivityIcon, CalendarDays, Wand2, Lock, LockOpen, Printer, Settings as SettingsIcon, MapPin } from "lucide-react";
 import { getISOWeek, parseISO } from "date-fns";
 
 export default function Activities() {
   const { activities, absences, classes, facilities, courses, scheduledActivities, settings } = useStore();
 
-  const [editingActivityId, setEditingActivityId] = useState<string | null>(null);
+  
+
+  const [showSettingsModal, setShowSettingsModal] = useState(false);
+  const [activeTab, setActiveTab] = useState<'activities' | 'facilities'>('activities');
+  
+  const [newFacilityName, setNewFacilityName] = useState("");
+  const [newFacilityColor, setNewFacilityColor] = useState("#f43f5e");
+  
+  const addFacility = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!newFacilityName) return;
+    await addDoc(collection(db, "facilities"), { name: newFacilityName, color: newFacilityColor, createdAt: new Date() });
+    setNewFacilityName("");
+  };
+
+  const deleteFacility = async (id: string) => {
+    if(window.window.confirm("Supprimer cette installation ?")) {
+       await deleteDoc(doc(db, "facilities", id));
+    }
+  };
+
+  // active classes only
+  const activeClasses = React.useMemo(() => {
+     return classes.filter(c => courses.some(course => course.classId === c.id));
+  }, [classes, courses]);
+const [editingActivityId, setEditingActivityId] = useState<string | null>(null);
   const [newActivityName, setNewActivityName] = useState("");
+  const [newActivityChamp, setNewActivityChamp] = useState<number | "">("");
   const [newActivityDuration, setNewActivityDuration] = useState<number>(7);
   const [newActivityFacility, setNewActivityFacility] = useState("");
   const [newActivityClasses, setNewActivityClasses] = useState<string[]>([]);
@@ -68,6 +94,15 @@ export default function Activities() {
 
   const [optimizing, setOptimizing] = useState(false);
 
+  
+  const toggleActivityClass = async (activity: any, classId: string) => {
+    const safeClassIds = activity.classIds || [];
+    const newClassIds = safeClassIds.includes(classId) 
+        ? safeClassIds.filter((id: string) => id !== classId)
+        : [...safeClassIds, classId];
+    await updateDoc(doc(db, "activities", activity.id), { classIds: newClassIds });
+  };
+
   const toggleClass = (classId: string) => {
     setNewActivityClasses(prev => 
       prev.includes(classId) ? prev.filter(id => id !== classId) : [...prev, classId]
@@ -76,12 +111,13 @@ export default function Activities() {
 
   const addActivity = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!newActivityName || !newActivityFacility || newActivityClasses.length === 0) {
-      alert("Veuillez remplir tous les champs (nom, installation, et au moins une classe).");
+    if (!newActivityName || !newActivityFacility) {
+      alert("Veuillez remplir le nom et l'installation.");
       return;
     }
     const data = {
       name: newActivityName,
+      champ: newActivityChamp || null,
       durationWeeks: newActivityDuration,
       maxCapacity: newActivityMaxCapacity,
       facilityId: newActivityFacility,
@@ -103,6 +139,7 @@ export default function Activities() {
   const resetForm = () => {
     setEditingActivityId(null);
     setNewActivityName("");
+    setNewActivityChamp("");
     setNewActivityClasses([]);
     setNewActivityMaxCapacity(1);
     setNewActivityPrefStart('');
@@ -114,6 +151,7 @@ export default function Activities() {
   const editActivity = (a: any) => {
     setEditingActivityId(a.id);
     setNewActivityName(a.name);
+    setNewActivityChamp(a.champ || "");
     setNewActivityDuration(a.durationWeeks);
     setNewActivityFacility(a.facilityId);
     setNewActivityClasses(a.classIds);
@@ -125,7 +163,7 @@ export default function Activities() {
   };
 
   const deleteActivity = async (id: string) => {
-    if (confirm("Supprimer cette activité ?")) {
+    if (window.confirm("Supprimer cette activité ?")) {
       await deleteDoc(doc(db, "activities", id));
     }
   };
@@ -351,164 +389,107 @@ export default function Activities() {
   return (
     <div className={`p-8 max-w-5xl mx-auto space-y-12 ${isPrintingRange ? 'print:p-0 print:space-y-0 print:max-w-none print:m-0' : ''}`}>
       <div className={isPrintingRange ? 'print:hidden' : ''}>
-        <h2 className="text-2xl font-bold text-slate-800 tracking-tight">Activités & Absences</h2>
+        
+        <div className="flex items-center justify-between">
+          <h2 className="text-2xl font-bold text-slate-800 tracking-tight">Activités & Absences</h2>
+          <button onClick={() => setShowSettingsModal(true)} className="bg-white border border-slate-200 hover:bg-slate-50 text-slate-700 px-4 py-2 rounded-lg font-medium text-sm flex items-center gap-2 shadow-sm transition-colors">
+            <SettingsIcon className="w-4 h-4" /> Paramétrage des Lieux & Activités
+          </button>
+        </div>
         <p className="text-slate-500 text-sm mt-1">Définissez les activités, temps de cycle, installations pour la répartition automatique.</p>
       </div>
 
-      <div className={`grid grid-cols-1 md:grid-cols-2 gap-6 ${isPrintingRange ? 'print:hidden' : ''}`}>
-        
-        {/* Activities */}
-        <section className="bg-white p-6 rounded-xl border border-slate-200 shadow-sm">
-          <h3 className="text-sm font-bold text-slate-500 uppercase mb-4 inline-flex items-center gap-2">
-            <ActivityIcon className="w-4 h-4" /> Activités & Cycles
-          </h3>
-          <ul className="space-y-2 mb-6 max-h-60 overflow-y-auto">
-            {activities.map(a => {
-              const fac = facilities.find(f => f.id === a.facilityId);
-              const clsNames = a.classIds.map(id => classes.find(c => c.id === id)?.name).filter(Boolean).join(", ");
-              return (
-                <li key={a.id} className="flex items-center justify-between p-2 bg-slate-50 rounded border border-slate-200 group">
-                  <div className="pr-4">
-                    <span className="text-sm font-medium">{a.name}</span> <span className="text-xs text-slate-400">({a.durationWeeks} sem.)</span>
-                    <div className="text-[10px] text-slate-500 mt-1">
-                      <span className="font-semibold text-slate-600">Lieu:</span> {fac?.name || '?'} <br/>
-                      <span className="font-semibold text-slate-600">Simultanée:</span> {a.maxCapacity || fac?.capacity || 1} classe(s) <br/>
-                      {a.preferredStartWeek && a.preferredEndWeek && <><span className="font-semibold text-slate-600">Période:</span> S{a.preferredStartWeek}-S{a.preferredEndWeek} <br/></>}
-                      {a.isMandatoryPeriod && <><span className="text-red-600 font-semibold text-[9px] uppercase">Période imposée</span><br/></>}
-                      {a.groupCycles && <><span className="text-blue-600 font-semibold text-[9px] uppercase">Mise en place importante (Groupé)</span><br/></>}
-                      <span className="font-semibold text-slate-600">Classes:</span> <span className="text-slate-400">{clsNames || 'Aucune'}</span>
+
+      <div className={isPrintingRange ? 'print:hidden' : ''}>
+         <div className="flex items-center justify-between mb-4">
+           <h3 className="font-bold text-slate-800 text-lg">Absences et Stages par Classe</h3>
+         </div>
+         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+            {activeClasses.map(c => {
+               const classAbsences = absences.filter(a => a.classId === c.id).sort((a,b) => a.startWeek - b.startWeek);
+               return (
+                 <div key={c.id} className="bg-white rounded-xl border border-slate-200 shadow-sm p-4 flex flex-col">
+                    <div className="flex items-center gap-2 mb-4 border-b border-slate-100 pb-2">
+                       <div className="w-3 h-3 rounded-full shadow-sm" style={{ backgroundColor: c.color }}></div>
+                       <h4 className="font-bold text-slate-800 flex-1">{c.name}</h4>
                     </div>
-                  </div>
-                  <div className="flex gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
-                    <button onClick={() => editActivity(a)} className="text-slate-400 hover:text-blue-600">
-                      <span className="text-xs font-semibold mr-2 border border-slate-200 px-2 py-1 rounded bg-white">Éditer</span>
-                    </button>
-                    <button onClick={() => deleteActivity(a.id)} className="text-slate-400 hover:text-red-500">
-                      <Trash2 className="w-4 h-4" />
-                    </button>
-                  </div>
-                </li>
-              );
-            })}
-            {activities.length === 0 && <p className="text-sm text-slate-400 italic">Aucune activité définie.</p>}
-          </ul>
-
-          <form onSubmit={addActivity} className="space-y-4 pt-4 border-t border-slate-100">
-            <h4 className="text-xs font-semibold text-slate-600 uppercase">Nouvelle Activité</h4>
-            <input value={newActivityName} onChange={e=>setNewActivityName(e.target.value)} placeholder="Nom de l'activité (ex: Basket)" className="form-input w-full text-sm rounded-md border-slate-300" required />
-            
-            <div className="flex items-center gap-2">
-              <label className="text-xs font-medium text-slate-600 shrink-0 w-24">Durée (sem.)</label>
-              <input type="number" min="1" max="52" value={newActivityDuration} onChange={e=>setNewActivityDuration(parseInt(e.target.value))} className="form-input flex-1 text-sm rounded-md border-slate-300" required />
-            </div>
-
-            <div className="flex items-center gap-2">
-              <label className="text-xs font-medium text-slate-600 shrink-0 w-24" title="Nombre de classes en simultané pour cette activité">Capacité simul.</label>
-              <input type="number" min="1" value={newActivityMaxCapacity} onChange={e=>setNewActivityMaxCapacity(parseInt(e.target.value))} className="form-input flex-1 text-sm rounded-md border-slate-300" required />
-            </div>
-
-            <div className="flex items-center gap-2">
-              <label className="text-xs font-medium text-slate-600 shrink-0 w-24">Installation</label>
-              <select value={newActivityFacility} onChange={e=>setNewActivityFacility(e.target.value)} className="form-select flex-1 text-sm rounded-md border-slate-300 bg-white" required>
-                <option value="">-- Choisir --</option>
-                {facilities.map(f => <option key={f.id} value={f.id}>{f.name}</option>)}
-              </select>
-            </div>
-
-            <div className="flex items-center gap-2 mt-4 pt-4 border-t border-slate-100">
-              <label className="text-xs font-medium text-slate-600 shrink-0 w-24">Période id. S.</label>
-              <input type="number" min="1" max="52" value={newActivityPrefStart} onChange={e=>setNewActivityPrefStart(e.target.value ? parseInt(e.target.value) : '')} placeholder="ex: 1" className="form-input flex-1 text-sm rounded-md border-slate-300" />
-              <span className="text-sm text-slate-400">à</span>
-              <input type="number" min="1" max="52" value={newActivityPrefEnd} onChange={e=>setNewActivityPrefEnd(e.target.value ? parseInt(e.target.value) : '')} placeholder="ex: 12" className="form-input flex-1 text-sm rounded-md border-slate-300" />
-            </div>
-
-            <div className="flex flex-col gap-2">
-              <label className="flex items-center gap-2 text-xs font-medium text-slate-700 cursor-pointer">
-                <input type="checkbox" checked={newActivityGroup} onChange={e => setNewActivityGroup(e.target.checked)} className="rounded text-blue-600 focus:ring-blue-500" />
-                Regrouper idéalement les cycles (installation importante)
-              </label>
-              <label className="flex items-center gap-2 text-xs font-medium text-slate-700 cursor-pointer">
-                <input type="checkbox" checked={newActivityMandatory} onChange={e => setNewActivityMandatory(e.target.checked)} className="rounded text-blue-600 focus:ring-blue-500" />
-                Bloquer obligatoirement sur cette période (ex: Piscine)
-              </label>
-            </div>
-
-            <div className="space-y-2 mt-4 pt-4 border-t border-slate-100">
-              <label className="text-xs font-medium text-slate-600">Classes concernées</label>
-              <div className="flex gap-2 flex-wrap max-h-32 overflow-y-auto p-2 border border-slate-200 rounded-md bg-slate-50">
-                {classes.map(c => (
-                  <label key={c.id} className="flex items-center gap-1.5 text-xs bg-white border border-slate-200 px-2 py-1 rounded cursor-pointer hover:bg-slate-50">
-                    <input type="checkbox" checked={newActivityClasses.includes(c.id)} onChange={() => toggleClass(c.id)} className="rounded text-blue-600 focus:ring-blue-500" />
-                    <span>{c.name}</span>
-                  </label>
-                ))}
-                {classes.length === 0 && <span className="text-[10px] text-slate-400">Aucune classe disponible</span>}
-              </div>
-            </div>
-
-            <div className="flex gap-2">
-              {editingActivityId && (
-                <button type="button" onClick={resetForm} className="flex-1 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-md text-sm font-medium transition-colors">
-                  Annuler
-                </button>
-              )}
-              <button type="submit" className="flex-[2] bg-slate-800 text-white font-medium py-2 rounded-md text-sm hover:bg-slate-900 flex justify-center items-center gap-2 shadow-sm">
-                <Plus className="w-4 h-4" /> {editingActivityId ? "Enregistrer" : "Ajouter l'activité"}
-              </button>
-            </div>
-          </form>
-        </section>
-
-        {/* Absences */}
-        <section className="bg-white p-6 rounded-xl border border-slate-200 shadow-sm">
-          <h3 className="text-sm font-bold text-slate-500 uppercase mb-4 inline-flex items-center gap-2">
-            <CalendarDays className="w-4 h-4" /> Classes en Stage / Absences
-          </h3>
-          <ul className="space-y-2 mb-6 max-h-60 overflow-y-auto">
-            {absences.map(a => {
-              const cls = classes.find(c => c.id === a.classId);
-              return (
-                <li key={a.id} className="flex items-center justify-between p-2 bg-blue-50/50 rounded border border-blue-100 group">
-                  <div className="flex items-center gap-3">
-                    <div className="w-2 h-2 rounded-full bg-blue-400"></div>
-                    <div>
-                      <span className="text-sm font-medium">{cls?.name || 'Classe inconnue'} <span className="font-normal text-slate-500">— {a.reason}</span></span>
-                      <div className="text-[10px] text-slate-400">Sem. {a.startWeek}-{a.endWeek}</div>
+                    
+                    <div className="flex-1 space-y-2 mb-4">
+                       {classAbsences.map(a => (
+                         <div key={a.id} className="flex justify-between items-center bg-blue-50/50 p-2 rounded text-sm border border-blue-100 group">
+                           <div>
+                              <div className="font-medium text-slate-800">{a.reason}</div>
+                              <div className="text-xs text-slate-500">Sem. {a.startWeek} à {a.endWeek}</div>
+                           </div>
+                           <button onClick={() => deleteDoc(doc(db, "absences", a.id))} className="text-slate-400 hover:text-red-500 opacity-0 group-hover:opacity-100 transition-opacity">
+                             <Trash2 className="w-4 h-4" />
+                           </button>
+                         </div>
+                       ))}
+                       {classAbsences.length === 0 && <p className="text-xs text-slate-400 italic">Aucune absence</p>}
                     </div>
-                  </div>
-                  <button onClick={() => deleteDoc(doc(db, "absences", a.id))} className="text-slate-400 hover:text-red-500 opacity-0 group-hover:opacity-100 transition-opacity">
-                    <Trash2 className="w-4 h-4" />
-                  </button>
-                </li>
-              );
+                    
+                    
+                    <div className="mt-4 pt-3 border-t border-slate-100">
+                       <h5 className="text-[11px] font-bold text-slate-700 mb-2 uppercase tracking-wide">Activités du cycle</h5>
+                       <div className="flex flex-wrap gap-1.5">
+                         {activities.map(a => {
+                            const isSelected = (a.classIds || []).includes(c.id);
+                            return (
+                               <button 
+                                  key={a.id} 
+                                  onClick={() => toggleActivityClass(a, c.id)}
+                                  className={`text-[10px] font-medium px-2.5 py-1 rounded-full border transition-all ${isSelected ? 'bg-blue-600 text-white border-blue-600 shadow-sm' : 'bg-slate-50 text-slate-600 border-slate-200 hover:border-blue-400 hover:bg-blue-50'}`}
+                               >
+                                 {a.name} {a.champ && ` (CA${a.champ})`}
+                               </button>
+                            )
+                         })}
+                         {activities.length === 0 && <span className="text-[10px] text-slate-400 italic">Aucune activité définie</span>}
+                       </div>
+                    </div>
+                    
+                    <div className="mt-4 pt-3 border-t border-slate-100">
+
+                       <form onSubmit={(e) => {
+                          e.preventDefault();
+                          const form = e.target;
+                          addDoc(collection(db, "absences"), {
+                             classId: c.id,
+                             reason: form.reason.value,
+                             startWeek: parseInt(form.startWeek.value),
+                             endWeek: parseInt(form.endWeek.value)
+                          });
+                          form.reset();
+                       }} className="flex flex-col gap-2">
+                          <input type="text" name="reason" placeholder="Motif (ex: Stage, PFMP)" className="form-input text-xs rounded-md border-slate-300 w-full" required />
+                          <div className="flex items-center gap-2">
+                             <div className="flex items-center flex-1 gap-1">
+                                <span className="text-[10px] text-slate-500">De S.</span>
+                                <input type="number" name="startWeek" min="1" max="52" className="form-input text-xs rounded-md border-slate-300 w-full px-1" required defaultValue="1"/>
+                             </div>
+                             <div className="flex items-center flex-1 gap-1">
+                                <span className="text-[10px] text-slate-500">À S.</span>
+                                <input type="number" name="endWeek" min="1" max="52" className="form-input text-xs rounded-md border-slate-300 w-full px-1" required defaultValue="1"/>
+                             </div>
+                             <button type="submit" className="bg-slate-800 text-white p-1.5 rounded-md hover:bg-slate-900 transition-colors shrink-0">
+                                <Plus className="w-4 h-4" />
+                             </button>
+                          </div>
+                       </form>
+                    </div>
+                 </div>
+               );
             })}
-            {absences.length === 0 && (
-              <div className="flex items-center gap-2 p-2 opacity-50">
-                <div className="w-2 h-2 rounded-full bg-slate-300"></div>
-                <span className="text-sm flex-1 italic text-slate-500">Ajouter une classe...</span>
-              </div>
+            {activeClasses.length === 0 && (
+               <div className="col-span-full py-12 flex flex-col items-center justify-center text-slate-400 border-2 border-dashed border-slate-200 rounded-xl">
+                 <CalendarDays className="w-10 h-10 mb-3 opacity-20" />
+                 <p className="text-sm font-medium">Aucune classe détectée</p>
+                 <p className="text-xs mt-1">Importez ou créez des cours dans l'emploi du temps pour voir les classes ici.</p>
+               </div>
             )}
-          </ul>
-
-          <form onSubmit={addAbsence} className="space-y-3 pt-4 border-t border-slate-100">
-            <h4 className="text-xs font-semibold text-slate-600 uppercase">Nouvelle absence</h4>
-            <select value={selClassId} onChange={e=>setSelClassId(e.target.value)} className="form-select w-full text-sm rounded-md border-slate-300 bg-white" required>
-              <option value="">Sélectionner une classe</option>
-              {classes.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
-            </select>
-            <input value={absReason} onChange={e=>setAbsReason(e.target.value)} placeholder="Motif (ex: Stage)" className="form-input w-full text-sm rounded-md border-slate-300" required />
-            <div className="flex items-center gap-2">
-              <input type="number" min="1" max="52" value={absStart} onChange={e=>setAbsStart(parseInt(e.target.value))} className="form-input flex-1 text-sm rounded-md border-slate-300" required />
-              <span className="text-sm text-slate-400">à</span>
-              <input type="number" min="1" max="52" value={absEnd} onChange={e=>setAbsEnd(parseInt(e.target.value))} className="form-input flex-1 text-sm rounded-md border-slate-300" required />
-            </div>
-            <button type="submit" className="w-full bg-slate-800 text-white font-medium py-2 rounded-md text-sm hover:bg-slate-900 flex justify-center items-center gap-2 shadow-sm">
-              <Plus className="w-4 h-4" /> Planifier
-            </button>
-          </form>
-        </section>
+         </div>
       </div>
-
       <div className="bg-white p-6 rounded-xl border border-slate-200 shadow-sm flex flex-col pt-6 mt-8 print:p-0 print:border-none print:shadow-none">
         <div className="flex items-center justify-between mb-6 print:hidden">
           <div>
@@ -769,6 +750,167 @@ export default function Activities() {
           </div>
         </div>
       )}
+
+      {showSettingsModal && (
+        <div className="fixed inset-0 bg-slate-900/40 backdrop-blur-sm flex items-center justify-center z-50 p-4 shrink-0">
+          <div className="bg-white rounded-xl shadow-xl w-full max-w-4xl max-h-[90vh] overflow-hidden border border-slate-200 flex flex-col">
+            <div className="px-6 py-4 border-b border-slate-100 bg-slate-50 flex justify-between items-center">
+              <h3 className="font-bold text-slate-800 flex items-center gap-2">
+                <SettingsIcon className="w-5 h-5 text-blue-600" /> Paramétrage des Lieux & Activités
+              </h3>
+              <button onClick={() => setShowSettingsModal(false)} className="text-slate-400 hover:text-slate-600 transition-colors font-bold text-xl leading-none">&times;</button>
+            </div>
+            
+            <div className="flex border-b border-slate-200 px-6 pt-2 bg-slate-50/50">
+              <button onClick={() => setActiveTab('activities')} className={`px-4 py-2 text-sm font-medium border-b-2 transition-colors ${activeTab === 'activities' ? 'border-blue-600 text-blue-600' : 'border-transparent text-slate-500 hover:text-slate-700'}`}>Activités & Cycles</button>
+              <button onClick={() => setActiveTab('facilities')} className={`px-4 py-2 text-sm font-medium border-b-2 transition-colors ${activeTab === 'facilities' ? 'border-blue-600 text-blue-600' : 'border-transparent text-slate-500 hover:text-slate-700'}`}>Lieux de pratique</button>
+            </div>
+
+            <div className="flex-1 overflow-auto p-6 bg-slate-50/30">
+              {activeTab === 'activities' && (
+                <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
+                  {/* Activities List */}
+                  <div>
+                    <h4 className="text-sm font-bold text-slate-700 uppercase mb-4 flex items-center gap-2"><ActivityIcon className="w-4 h-4"/> Activités Existantes</h4>
+                    <ul className="space-y-2">
+                      {activities.map(a => {
+                        const fac = facilities.find(f => f.id === a.facilityId);
+                        const clsNames = a.classIds.map(id => classes.find(c => c.id === id)?.name).filter(Boolean).join(", ");
+                        return (
+                          <li key={a.id} className="flex items-center justify-between p-3 bg-white rounded-lg border border-slate-200 shadow-sm group">
+                            <div className="pr-4">
+                              <span className="text-sm font-bold text-slate-800">{a.name}</span> {a.champ && <span className="text-[10px] font-bold text-indigo-600 bg-indigo-50 px-1.5 py-0.5 rounded ml-1">CA{a.champ}</span>} <span className="text-xs font-medium text-blue-600 bg-blue-50 px-1.5 py-0.5 rounded ml-1">{a.durationWeeks} sem.</span>
+                              <div className="text-[11px] text-slate-500 mt-2 space-y-1">
+                                <div className="flex items-center gap-1.5"><MapPin className="w-3 h-3 text-slate-400"/> <span className="font-medium text-slate-600">Lieu:</span> {fac?.name || '?'} (Cap. {a.maxCapacity || fac?.capacity || 1})</div>
+                                {a.preferredStartWeek && a.preferredEndWeek && <div className="flex items-center gap-1.5"><CalendarDays className="w-3 h-3 text-slate-400"/> <span className="font-medium text-slate-600">Période:</span> S{a.preferredStartWeek}-S{a.preferredEndWeek} {a.isMandatoryPeriod && <span className="text-red-600 font-bold ml-1 text-[9px] uppercase bg-red-50 px-1 py-0.5 rounded">Imposée</span>}</div>}
+                                {a.groupCycles && <div className="text-blue-600 font-semibold text-[9px] uppercase bg-blue-50 px-1.5 py-0.5 rounded inline-block mt-0.5">Mise en place importante (Groupé)</div>}
+                                <div className="leading-tight pt-1"><span className="font-medium text-slate-600">Classes:</span> <span className="text-slate-500">{clsNames || 'Aucune'}</span></div>
+                              </div>
+                            </div>
+                            <div className="flex flex-col gap-2 opacity-0 group-hover:opacity-100 transition-opacity shrink-0">
+                              <button onClick={() => editActivity(a)} className="text-blue-600 hover:text-blue-800 bg-blue-50 hover:bg-blue-100 p-1.5 rounded transition-colors" title="Éditer">
+                                <SettingsIcon className="w-4 h-4" />
+                              </button>
+                              <button onClick={() => deleteActivity(a.id)} className="text-red-500 hover:text-red-700 bg-red-50 hover:bg-red-100 p-1.5 rounded transition-colors" title="Supprimer">
+                                <Trash2 className="w-4 h-4" />
+                              </button>
+                            </div>
+                          </li>
+                        );
+                      })}
+                      {activities.length === 0 && <p className="text-sm text-slate-400 italic bg-white p-4 rounded border border-slate-200 border-dashed text-center">Aucune activité définie.</p>}
+                    </ul>
+                  </div>
+
+                  {/* Activity Form */}
+                  <div>
+                    <h4 className="text-sm font-bold text-slate-700 uppercase mb-4 flex items-center gap-2"><Plus className="w-4 h-4"/> {editingActivityId ? "Éditer l'activité" : "Nouvelle Activité"}</h4>
+                    <form onSubmit={addActivity} className="space-y-4 bg-white p-5 rounded-lg border border-slate-200 shadow-sm">
+                      <div>
+                        <label className="block text-xs font-semibold text-slate-600 mb-1">Nom de l'activité</label>
+                        <input value={newActivityName} onChange={e=>setNewActivityName(e.target.value)} placeholder="ex: Basket, Natation..." className="form-input w-full text-sm rounded-md border-slate-300" required />
+                      </div>
+                      
+                      <div className="flex gap-4">
+                        <div className="flex-1">
+                          <label className="block text-xs font-semibold text-slate-600 mb-1">Champ d'apprentissage (CA)</label>
+                          <select value={newActivityChamp} onChange={e=>setNewActivityChamp(e.target.value ? parseInt(e.target.value) : '')} className="form-select w-full text-sm rounded-md border-slate-300 bg-white">
+                            <option value="">-- Optionnel --</option>
+                            <option value="1">Champ 1 (CA1)</option>
+                            <option value="2">Champ 2 (CA2)</option>
+                            <option value="3">Champ 3 (CA3)</option>
+                            <option value="4">Champ 4 (CA4)</option>
+                            <option value="5">Champ 5 (CA5)</option>
+                          </select>
+                        </div>
+                      </div>
+
+                      <div className="flex gap-4">
+                        <div className="flex-1">
+                          <label className="block text-xs font-semibold text-slate-600 mb-1">Durée (sem.)</label>
+                          <input type="number" min="1" max="52" value={newActivityDuration} onChange={e=>setNewActivityDuration(parseInt(e.target.value))} className="form-input w-full text-sm rounded-md border-slate-300" required />
+                        </div>
+                        <div className="flex-1">
+                          <label className="block text-xs font-semibold text-slate-600 mb-1" title="Nombre de classes en simultané pour cette activité">Capacité simul.</label>
+                          <input type="number" min="1" value={newActivityMaxCapacity} onChange={e=>setNewActivityMaxCapacity(parseInt(e.target.value))} className="form-input w-full text-sm rounded-md border-slate-300" required />
+                        </div>
+                      </div>
+                      <div>
+                        <label className="block text-xs font-semibold text-slate-600 mb-1">Lieu de pratique (Installation)</label>
+                        <select value={newActivityFacility} onChange={e=>setNewActivityFacility(e.target.value)} className="form-select w-full text-sm rounded-md border-slate-300 bg-white" required>
+                          <option value="">-- Choisir --</option>
+                          {facilities.map(f => <option key={f.id} value={f.id}>{f.name}</option>)}
+                        </select>
+                      </div>
+                      <div className="pt-3 border-t border-slate-100">
+                        <label className="block text-xs font-semibold text-slate-600 mb-2">Période souhaitée (Optionnel)</label>
+                        <div className="flex items-center gap-3">
+                          <input type="number" min="1" max="52" value={newActivityPrefStart} onChange={e=>setNewActivityPrefStart(e.target.value ? parseInt(e.target.value) : '')} placeholder="De S. (ex: 1)" className="form-input flex-1 text-sm rounded-md border-slate-300" />
+                          <span className="text-sm text-slate-400 font-medium">à</span>
+                          <input type="number" min="1" max="52" value={newActivityPrefEnd} onChange={e=>setNewActivityPrefEnd(e.target.value ? parseInt(e.target.value) : '')} placeholder="À S. (ex: 12)" className="form-input flex-1 text-sm rounded-md border-slate-300" />
+                        </div>
+                      </div>
+                      <div className="flex flex-col gap-2 pt-2">
+                        <label className="flex items-center gap-2 text-[11px] font-medium text-slate-700 cursor-pointer bg-slate-50 p-2 rounded border border-slate-100">
+                          <input type="checkbox" checked={newActivityGroup} onChange={e => setNewActivityGroup(e.target.checked)} className="rounded text-blue-600 focus:ring-blue-500" />
+                          Regrouper idéalement les cycles (mise en place du matériel importante)
+                        </label>
+                        <label className="flex items-center gap-2 text-[11px] font-medium text-slate-700 cursor-pointer bg-slate-50 p-2 rounded border border-slate-100">
+                          <input type="checkbox" checked={newActivityMandatory} onChange={e => setNewActivityMandatory(e.target.checked)} className="rounded text-red-600 focus:ring-red-500" />
+                          <span className="text-red-700">Bloquer OBLIGATOIREMENT sur cette période (ex: Natation)</span>
+                        </label>
+                      </div>
+                      
+                      <div className="flex gap-2 pt-4">
+                        {editingActivityId && (
+                          <button type="button" onClick={resetForm} className="flex-1 py-2.5 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-lg text-sm font-bold transition-colors">
+                            Annuler
+                          </button>
+                        )}
+                        <button type="submit" className="flex-[2] bg-blue-600 text-white font-bold py-2.5 rounded-lg text-sm hover:bg-blue-700 flex justify-center items-center gap-2 shadow-sm transition-colors">
+                          {editingActivityId ? "Mettre à jour l'activité" : "Créer l'activité"}
+                        </button>
+                      </div>
+                    </form>
+                  </div>
+                </div>
+              )}
+
+              {activeTab === 'facilities' && (
+                <div className="max-w-2xl mx-auto">
+                  <form onSubmit={addFacility} className="bg-white p-5 rounded-lg border border-slate-200 shadow-sm flex items-end gap-4 mb-8">
+                     <div className="flex-1">
+                       <label className="block text-xs font-semibold text-slate-600 mb-1">Nom du lieu</label>
+                       <input value={newFacilityName} onChange={e=>setNewFacilityName(e.target.value)} placeholder="ex: Gymnase municipal, Forêt..." className="form-input w-full text-sm rounded-md border-slate-300" required />
+                     </div>
+                     <div>
+                       <label className="block text-xs font-semibold text-slate-600 mb-1">Couleur</label>
+                       <input type="color" value={newFacilityColor} onChange={e=>setNewFacilityColor(e.target.value)} className="h-9 w-12 rounded cursor-pointer border border-slate-300" />
+                     </div>
+                     <button type="submit" className="bg-slate-800 text-white px-6 py-2 rounded-md font-medium text-sm hover:bg-slate-900 transition-colors h-10">Ajouter</button>
+                  </form>
+
+                  <div className="space-y-3">
+                     {facilities.map(f => (
+                       <div key={f.id} className="flex items-center justify-between p-4 bg-white rounded-lg border border-slate-200 shadow-sm">
+                         <div className="flex items-center gap-3">
+                           <div className="w-4 h-4 rounded-full shadow-sm border border-black/10" style={{backgroundColor: f.color}}></div>
+                           <span className="font-bold text-slate-700">{f.name}</span>
+                         </div>
+                         <button onClick={() => deleteFacility(f.id)} className="text-red-500 hover:text-red-700 bg-red-50 hover:bg-red-100 p-2 rounded transition-colors" title="Supprimer">
+                           <Trash2 className="w-4 h-4" />
+                         </button>
+                       </div>
+                     ))}
+                     {facilities.length === 0 && <p className="text-sm text-slate-400 italic text-center py-8">Aucun lieu de pratique défini.</p>}
+                  </div>
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+
     </div>
   );
 }

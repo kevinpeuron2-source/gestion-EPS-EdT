@@ -46,6 +46,7 @@ export interface Facility {
 export interface Activity {
   id: string;
   name: string;
+  champ?: 1 | 2 | 3 | 4 | 5;
   durationWeeks: number;
   facilityId: string;
   classIds: string[];
