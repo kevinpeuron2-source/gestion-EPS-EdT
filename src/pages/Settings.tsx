@@ -1,12 +1,18 @@
 import React, { useState } from "react";
 import { useStore } from "../store/useStore";
 import { db } from "../lib/firebase";
-import { collection, addDoc, deleteDoc, doc, updateDoc, setDoc } from "firebase/firestore";
-import { Trash2, Plus, GripVertical, Download, Upload } from "lucide-react";
+import { collection, addDoc, deleteDoc, doc, updateDoc, setDoc, writeBatch } from "firebase/firestore";
+import { Trash2, Plus, GripVertical, Download, Upload, AlertTriangle, CheckCircle2, AlertCircle } from "lucide-react";
 import { Teacher, ClassGroup, Facility } from "../types";
 
 export default function Settings() {
-  const { teachers, classes, facilities, settings, courses } = useStore();
+  const { teachers, classes, facilities, settings, courses, absences, scheduledActivities, activities } = useStore();
+
+  
+  const [deleteTarget, setDeleteTarget] = useState<string>('');
+  const [deleteStep, setDeleteStep] = useState<number>(0);
+  const [isDeleting, setIsDeleting] = useState(false);
+  const [deleteStatus, setDeleteStatus] = useState<{ type: 'idle' | 'success' | 'error' | 'loading'; message: string }>({ type: 'idle', message: '' });
 
   const [newTeacherName, setNewTeacherName] = useState("");
   const [newTeacherColor, setNewTeacherColor] = useState("#4f46e5");
@@ -16,6 +22,65 @@ export default function Settings() {
 
   const [newFacilityName, setNewFacilityName] = useState("");
   const [newFacilityColor, setNewFacilityColor] = useState("#f43f5e");
+
+  
+  const handleDeleteSchedules = async () => {
+    if (deleteStep !== 2) return;
+    setIsDeleting(true);
+    setDeleteStatus({ type: 'loading', message: 'Suppression en cours...' });
+
+    try {
+      const batch = writeBatch(db);
+      let coursesToDelete = [];
+
+      if (deleteTarget === 'all') {
+        coursesToDelete = courses;
+      } else if (deleteTarget) {
+        coursesToDelete = courses.filter(c => c.teacherId === deleteTarget);
+      }
+
+      // Delete the courses
+      coursesToDelete.forEach(c => {
+        batch.delete(doc(db, "courses", c.id));
+      });
+
+      // Cleanup orphan classes
+      const remainingCourses = courses.filter(c => !coursesToDelete.some(d => d.id === c.id));
+      const classIdsInUse = new Set(remainingCourses.map(c => c.classId));
+      
+      const orphanClasses = classes.filter(c => !classIdsInUse.has(c.id));
+      orphanClasses.forEach(c => {
+        batch.delete(doc(db, "classes", c.id));
+        
+        // Also cleanup associated absences and scheduledActivities
+        absences.filter(a => a.classId === c.id).forEach(a => {
+           batch.delete(doc(db, "absences", a.id));
+        });
+        scheduledActivities.filter(sa => sa.classId === c.id).forEach(sa => {
+           batch.delete(doc(db, "scheduledActivities", sa.id));
+        });
+        
+        // Cleanup activities classIds
+        activities.forEach(act => {
+           if (act.classIds?.includes(c.id)) {
+              const newIds = act.classIds.filter((id) => id !== c.id);
+              batch.update(doc(db, "activities", act.id), { classIds: newIds });
+           }
+        });
+      });
+
+      await batch.commit();
+      
+      setDeleteStatus({ type: 'success', message: `Suppression réussie ! ${coursesToDelete.length} créneaux et ${orphanClasses.length} classes orphelines supprimés.` });
+    } catch(err) {
+      console.error(err);
+      setDeleteStatus({ type: 'error', message: 'Erreur lors de la suppression.' });
+    } finally {
+      setIsDeleting(false);
+      setDeleteStep(0);
+      setDeleteTarget('');
+    }
+  };
 
   const addTeacher = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -447,6 +512,73 @@ export default function Settings() {
             </label>
           </div>
         </section>
+
+        {/* Danger Zone */}
+        <section className="bg-white rounded-xl shadow-sm border border-red-200 overflow-hidden md:col-span-2 mt-4">
+          <div className="bg-red-50 border-b border-red-100 px-6 py-4 flex items-center gap-2">
+             <AlertTriangle className="w-5 h-5 text-red-600" />
+             <h2 className="text-base font-bold text-red-800">Zone de danger (Suppression des emplois du temps)</h2>
+          </div>
+          <div className="p-6 space-y-4">
+             <p className="text-sm text-slate-600">
+               Vous pouvez supprimer les emplois du temps importés. Cela nettoiera automatiquement les classes qui ne sont plus associées à aucun créneau.
+             </p>
+             
+             {deleteStatus.type !== 'idle' && (
+                <div className={`p-4 rounded-lg flex items-start gap-3 ${deleteStatus.type === 'success' ? 'bg-green-50 text-green-800 border border-green-200' : 'bg-red-50 text-red-800 border border-red-200'}`}>
+                  {deleteStatus.type === 'success' ? <CheckCircle2 className="w-5 h-5 shrink-0" /> : <AlertCircle className="w-5 h-5 shrink-0" />}
+                  <p className="text-sm font-medium">{deleteStatus.message}</p>
+                </div>
+             )}
+
+             <div className="flex flex-col sm:flex-row gap-4 items-end">
+               <div className="flex-1 w-full">
+                 <label className="block text-xs font-semibold text-slate-700 mb-2">Cible de la suppression</label>
+                 <select 
+                   value={deleteTarget} 
+                   onChange={(e) => {
+                     setDeleteTarget(e.target.value);
+                     setDeleteStep(0);
+                   }}
+                   className="w-full form-select rounded-md border-slate-300 text-sm shadow-sm"
+                   disabled={isDeleting || deleteStep > 0}
+                 >
+                   <option value="">-- Choisir --</option>
+                   <option value="all" className="font-bold text-red-600">🚨 TOUS LES EMPLOIS DU TEMPS</option>
+                   {teachers.map(t => (
+                     <option key={t.id} value={t.id}>Emploi du temps de : {t.name}</option>
+                   ))}
+                 </select>
+               </div>
+               
+               {deleteTarget && (
+                 <div className="shrink-0">
+                   {deleteStep === 0 && (
+                     <button onClick={() => setDeleteStep(1)} className="w-full sm:w-auto px-4 py-2 bg-red-100 text-red-700 hover:bg-red-200 rounded-lg font-medium text-sm transition-colors">
+                        Supprimer...
+                     </button>
+                   )}
+                   {deleteStep === 1 && (
+                     <div className="flex gap-2">
+                       <button onClick={() => setDeleteStep(0)} className="flex-1 sm:flex-none px-3 py-2 bg-slate-100 text-slate-700 hover:bg-slate-200 rounded-lg font-medium text-sm transition-colors">
+                          Annuler
+                       </button>
+                       <button onClick={() => setDeleteStep(2)} className="flex-1 sm:flex-none px-4 py-2 bg-red-600 text-white hover:bg-red-700 rounded-lg font-bold text-sm transition-colors shadow-sm animate-pulse">
+                          Confirmer définitivement
+                       </button>
+                     </div>
+                   )}
+                   {deleteStep === 2 && (
+                     <button onClick={handleDeleteSchedules} disabled={isDeleting} className="w-full sm:w-auto px-6 py-2 bg-red-700 text-white rounded-lg font-bold text-sm shadow-sm opacity-90">
+                        {isDeleting ? 'Suppression...' : 'Exécuter'}
+                     </button>
+                   )}
+                 </div>
+               )}
+             </div>
+          </div>
+        </section>
+
       </div>
     </div>
   );
