@@ -6,7 +6,7 @@ import { db } from '../lib/firebase';
 import { collection, writeBatch, doc } from 'firebase/firestore';
 
 export default function Import() {
-  const { teachers, classes, facilities } = useStore();
+  const { teachers, classes, facilities, courses } = useStore();
   const [selectedTeacherId, setSelectedTeacherId] = useState<string>('');
   const [fileContent, setFileContent] = useState<string>('');
   const [status, setStatus] = useState<{ type: 'idle' | 'success' | 'error' | 'loading'; message: string }>({ type: 'idle', message: '' });
