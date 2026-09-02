@@ -42,13 +42,15 @@ export default function Schedule() {
     facilityId: string;
     isUnavailability?: boolean;
     reason?: string;
+    weekType?: 'ALL' | 'A' | 'B';
   }>({
     dayOfWeek: "Lundi",
     teacherId: "",
     startTime: "08:00",
     endTime: "09:00",
     classId: "",
-    facilityId: ""
+    facilityId: "",
+    weekType: "ALL"
   });
 
   const pxPerMinute = printMode ? 1.0 : PX_PER_MINUTE; // Fallback for specific scale
@@ -258,7 +260,8 @@ export default function Schedule() {
       startTime,
       endTime,
       classId: "",
-      facilityId: ""
+      facilityId: "",
+      weekType: "ALL"
     });
     setShowCourseModal(true);
   };
@@ -266,7 +269,7 @@ export default function Schedule() {
   const handleCourseClick = (course: Course, e: React.MouseEvent) => {
     e.stopPropagation();
     if (printMode) return;
-    setEditingCourse(course);
+    setEditingCourse({ ...course, weekType: course.weekType || 'ALL' });
     setShowCourseModal(true);
   };
 
@@ -417,7 +420,10 @@ export default function Schedule() {
                                     }}
                                   >
                                     <div className="flex flex-col h-full pointer-events-none">
-                                      <div className="text-[8px] font-mono leading-none text-slate-700/90 mb-0.5">{course.startTime}-{course.endTime}</div>
+                                      <div className="text-[8px] font-mono leading-none text-slate-700/90 mb-0.5">
+                                        {course.startTime}-{course.endTime}
+                                        {course.weekType && course.weekType !== 'ALL' && <span className="ml-1 text-[7px] bg-white/60 px-0.5 rounded text-slate-600">Sem.{course.weekType}</span>}
+                                      </div>
                                       {isUnavail ? (
                                         <div className="text-[9px] font-bold uppercase text-slate-600 truncate">{course.reason || 'Indispo'}</div>
                                       ) : isAbsent ? (
@@ -585,7 +591,10 @@ export default function Schedule() {
                                        borderStyle: isUnavail ? 'dashed' : 'solid'
                                      }}
                                    >
-                                     <div className="text-[10px] font-mono font-bold text-slate-700/90 leading-none mb-1">{course.startTime}-{course.endTime}</div>
+                                     <div className="text-[10px] font-mono font-bold text-slate-700/90 leading-none mb-1">
+                                        {course.startTime}-{course.endTime}
+                                        {course.weekType && course.weekType !== 'ALL' && <span className="ml-1 text-[9px] font-semibold bg-white/60 px-1 rounded text-slate-600">Sem.{course.weekType}</span>}
+                                     </div>
                                      {course.isUnavailability ? (
                                        <div className="text-xs font-bold uppercase text-slate-800">{course.reason || 'Indisponible'}</div>
                                      ) : period.isAbsent(course) ? (
@@ -646,6 +655,15 @@ export default function Schedule() {
                     <label className="block text-xs font-semibold text-slate-600 mb-1">Fin</label>
                     <input type="time" required value={editingCourse.endTime} onChange={e => setEditingCourse({...editingCourse, endTime: e.target.value})} className="form-input w-full text-sm rounded-md border-slate-300" />
                   </div>
+                </div>
+
+                <div className="pt-2">
+                  <label className="block text-xs font-semibold text-slate-600 mb-1">Fréquence (Semaines)</label>
+                  <select value={editingCourse.weekType || 'ALL'} onChange={e => setEditingCourse({...editingCourse, weekType: e.target.value as any})} className="form-select w-full text-sm rounded-md border-slate-300">
+                    <option value="ALL">Toutes les semaines</option>
+                    <option value="A">Semaines Paires (Semaine A)</option>
+                    <option value="B">Semaines Impaires (Semaine B)</option>
+                  </select>
                 </div>
 
                 <div className="pt-4 border-t border-slate-100">

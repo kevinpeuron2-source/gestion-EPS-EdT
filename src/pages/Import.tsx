@@ -4,6 +4,7 @@ import { useStore } from '../store/useStore';
 import { Course } from '../types';
 import { db } from '../lib/firebase';
 import { collection, writeBatch, doc } from 'firebase/firestore';
+import { getISOWeek } from 'date-fns';
 
 export default function Import() {
   const { teachers, classes, facilities, courses } = useStore();
@@ -84,8 +85,8 @@ export default function Import() {
       let newClasses = [...classes];
       let importedCount = 0;
 
-      // Uniquely identify slots to avoid massive duplication if ICS has a whole year of events
-      const seenSlots = new Set<string>();
+      // Group slots by time and class to detect week parity
+      const groupedSlots = new Map<string, { weeks: Set<number>, dayOfWeek: string, startTime: string, endTime: string, className: string, facilityId: string }>();
 
       events.forEach(ev => {
         const start = parseICSDate(ev.DTSTART);
@@ -96,31 +97,36 @@ export default function Import() {
         const dayOfWeek = DAYS[start.getDay()];
         const startTimeStr = `${start.getHours().toString().padStart(2, '0')}:${start.getMinutes().toString().padStart(2, '0')}`;
         const endTimeStr = `${end.getHours().toString().padStart(2, '0')}:${end.getMinutes().toString().padStart(2, '0')}`;
+        const weekNum = getISOWeek(start);
 
-        // Deduplicate weekly events
-        const slotKey = `${dayOfWeek}-${startTimeStr}-${endTimeStr}`;
-        if (seenSlots.has(slotKey)) return;
-        seenSlots.add(slotKey);
-
-        // Extract class and location
         const rawSummary = (ev.SUMMARY || '').replace(/\\n/g, ' ').replace(/\\,/g, ',');
-        const rawDesc = (ev.DESCRIPTION || '').replace(/\\n/g, ' ').replace(/\\,/g, ',');
         const location = (ev.LOCATION || '').replace(/\\n/g, ' ').replace(/\\,/g, ',').trim();
-        
-        let className = "";
         
         // Skip unavailabilities
         if (rawSummary.toLowerCase().includes('indisponible') || rawSummary.toLowerCase().includes('ferié') || rawSummary.toLowerCase().includes('vacances')) {
           return;
         }
 
-        // Try to find "Classe : 2nde A" in description (Typical in Pronote)
-        const classMatch = rawDesc.match(/Classe[s]?\s*:\s*(.+?)(?:$|Matière|Prof|Salle|Groupe)/i);
-        if (classMatch && classMatch[1].trim()) {
-            className = classMatch[1].trim();
-        } else {
-            // Fallback: take the first part of the summary or whatever is available
-            className = rawSummary.split('-').pop()?.trim() || rawSummary.trim();
+        const rawDescParts = (ev.DESCRIPTION || '').split(/\\n/);
+        let className = "";
+        
+        for (const part of rawDescParts) {
+           const cleanPart = part.replace(/\\,/g, ',');
+           if (cleanPart.toLowerCase().startsWith('classe') || cleanPart.toLowerCase().startsWith('classes')) {
+              className = cleanPart.split(':')[1]?.trim() || '';
+              break;
+           }
+           if (cleanPart.toLowerCase().startsWith('groupe') || cleanPart.toLowerCase().startsWith('groupes')) {
+              className = cleanPart.split(':')[1]?.trim() || '';
+              break;
+           }
+        }
+        
+        if (!className) {
+            const parts = rawSummary.split('-').map(p => p.trim());
+            const maybeClass = parts.find(p => /[0-9]/.test(p) || p.toLowerCase().includes('eme') || p.toLowerCase().includes('nde')) || parts.pop() || rawSummary.trim();
+            className = maybeClass;
+            
             if (className.length > 20) {
                 className = className.substring(0, 20).trim();
             }
@@ -128,33 +134,54 @@ export default function Import() {
         
         if (!className) className = "Classe Inconnue";
 
-        // Find or create class
-        let classObj = newClasses.find(c => c.name.toLowerCase() === className.toLowerCase());
-        if (!classObj) {
-          classObj = {
-            id: `class-${Date.now()}-${Math.random().toString(36).substring(2,9)}`,
-            name: className,
-            color: '#e2e8f0', // default gray
-            level: '',
-          };
-          newClasses.push(classObj);
-        }
-
         let facilityId = "";
         if (location) {
            const fac = facilities.find(f => f.name.toLowerCase() === location.toLowerCase());
            if (fac) facilityId = fac.id;
         }
 
+        const slotKey = `${dayOfWeek}-${startTimeStr}-${endTimeStr}-${className}`;
+        if (!groupedSlots.has(slotKey)) {
+           groupedSlots.set(slotKey, { weeks: new Set(), dayOfWeek, startTime: startTimeStr, endTime: endTimeStr, className, facilityId });
+        }
+        groupedSlots.get(slotKey)!.weeks.add(weekNum);
+      });
+
+      groupedSlots.forEach((slotData) => {
+        // Determine week type
+        let weekType: 'ALL' | 'A' | 'B' = 'ALL';
+        const weeksArray = Array.from(slotData.weeks);
+        
+        // Check if there are weeks specified and we have a small sample size that makes it look like A or B
+        if (weeksArray.length > 0) {
+           const allEven = weeksArray.every(w => w % 2 === 0);
+           const allOdd = weeksArray.every(w => w % 2 !== 0);
+           if (allEven) weekType = 'A';
+           else if (allOdd) weekType = 'B';
+        }
+
+        // Find or create class
+        let classObj = newClasses.find(c => c.name.toLowerCase() === slotData.className.toLowerCase());
+        if (!classObj) {
+          classObj = {
+            id: `class-${Date.now()}-${Math.random().toString(36).substring(2,9)}`,
+            name: slotData.className,
+            color: '#e2e8f0', // default gray
+            level: '',
+          };
+          newClasses.push(classObj);
+        }
+
         newCourses.push({
           id: `course-${Date.now()}-${Math.random().toString(36).substring(2,9)}`,
           teacherId: selectedTeacherId,
           classId: classObj.id,
-          facilityId,
-          dayOfWeek,
-          startTime: startTimeStr,
-          endTime: endTimeStr,
-          isUnavailability: false
+          facilityId: slotData.facilityId,
+          dayOfWeek: slotData.dayOfWeek,
+          startTime: slotData.startTime,
+          endTime: slotData.endTime,
+          isUnavailability: false,
+          weekType: weekType
         });
 
         importedCount++;
