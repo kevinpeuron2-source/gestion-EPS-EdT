@@ -11,8 +11,8 @@ export default function Layout({ onLogout }: { onLogout: () => void }) {
 
   const nav = [
     { name: "Emploi du temps", href: "/schedule", icon: Calendar },
-    { name: "Créneaux (Grille)", href: "/slot-manager", icon: List },
     { name: "Activités & Absences", href: "/activities", icon: Clock },
+    { name: "Importation (EDT)", href: "/import", icon: Map }, // Repurposed Map icon for import
     { name: "Paramètres", href: "/settings", icon: Settings },
   ];
 

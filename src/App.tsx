@@ -14,7 +14,7 @@ import Layout from "./components/Layout";
 import Schedule from "./pages/Schedule";
 import Activities from "./pages/Activities";
 import Settings from "./pages/Settings";
-import SlotManager from "./pages/SlotManager";
+import Import from "./pages/Import";
 
 export function cn(...inputs: ClassValue[]) {
   return twMerge(clsx(inputs));
@@ -80,8 +80,8 @@ export default function App() {
         <Route path="/" element={<Layout onLogout={handleLogout} />}>
           <Route index element={<Navigate to="/schedule" replace />} />
           <Route path="schedule" element={<Schedule />} />
-          <Route path="slot-manager" element={<SlotManager />} />
           <Route path="activities" element={<Activities />} />
+          <Route path="import" element={<Import />} />
           <Route path="settings" element={<Settings />} />
         </Route>
       </Routes>

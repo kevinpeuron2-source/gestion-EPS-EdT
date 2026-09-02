@@ -50,6 +50,10 @@ export interface Activity {
   facilityId: string;
   classIds: string[];
   maxCapacity?: number;
+  preferredStartWeek?: number;
+  preferredEndWeek?: number;
+  isMandatoryPeriod?: boolean;
+  groupCycles?: boolean;
 }
 
 export interface Absence {

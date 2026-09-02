@@ -1,6 +1,9 @@
 import React, { useState } from "react";
 import { useStore } from "../store/useStore";
-import { Printer, Users, User } from "lucide-react";
+import { Printer, Users, User, X, Trash2, Plus, Edit } from "lucide-react";
+import { db } from "../lib/firebase";
+import { collection, addDoc, deleteDoc, doc, updateDoc } from "firebase/firestore";
+import { Course } from "../types";
 
 const DAYS = ["Lundi", "Mardi", "Mercredi", "Jeudi", "Vendredi"];
 const TIME_START = 8;
@@ -22,6 +25,26 @@ export default function Schedule() {
   const [selectedTeachersForPrint, setSelectedTeachersForPrint] = useState<string[]>([]);
   const [printFit, setPrintFit] = useState<'contain' | 'width' | 'height'>('contain');
   const [printType, setPrintType] = useState<'neutral' | 'planned'>('neutral');
+
+  const [showCourseModal, setShowCourseModal] = useState(false);
+  const [editingCourse, setEditingCourse] = useState<{
+    id?: string;
+    dayOfWeek: string;
+    teacherId: string;
+    startTime: string;
+    endTime: string;
+    classId: string;
+    facilityId: string;
+    isUnavailability?: boolean;
+    reason?: string;
+  }>({
+    dayOfWeek: "Lundi",
+    teacherId: "",
+    startTime: "08:00",
+    endTime: "09:00",
+    classId: "",
+    facilityId: ""
+  });
 
   const pxPerMinute = printMode ? 1.0 : PX_PER_MINUTE; // Fallback for specific scale
   const totalMins = (TIME_END - TIME_START) * 60;
@@ -159,6 +182,57 @@ export default function Schedule() {
     }, 300);
   };
 
+  const handleGridClick = (day: string, teacherId: string, e: React.MouseEvent<HTMLDivElement>) => {
+    if (printMode) return;
+    const rect = e.currentTarget.getBoundingClientRect();
+    const offsetY = e.clientY - rect.top;
+    
+    // Calculate which hour was clicked
+    const minSinceStart = (offsetY / rect.height) * totalMins;
+    const hour = Math.floor(minSinceStart / 60) + TIME_START;
+    
+    const startTime = `${hour.toString().padStart(2, '0')}:00`;
+    const endTime = `${(hour + 1).toString().padStart(2, '0')}:00`;
+
+    setEditingCourse({
+      dayOfWeek: day,
+      teacherId,
+      startTime,
+      endTime,
+      classId: "",
+      facilityId: ""
+    });
+    setShowCourseModal(true);
+  };
+
+  const handleCourseClick = (course: Course, e: React.MouseEvent) => {
+    e.stopPropagation();
+    if (printMode) return;
+    setEditingCourse(course);
+    setShowCourseModal(true);
+  };
+
+  const saveCourse = async (e: React.FormEvent) => {
+    e.preventDefault();
+    try {
+      if (editingCourse.id) {
+        const { id, ...data } = editingCourse;
+        await updateDoc(doc(db, "courses", id), data);
+      } else {
+        await addDoc(collection(db, "courses"), editingCourse);
+      }
+      setShowCourseModal(false);
+    } catch (err) {}
+  };
+
+  const deleteCourse = async () => {
+    if (!editingCourse.id) return;
+    try {
+      await deleteDoc(doc(db, "courses", editingCourse.id));
+      setShowCourseModal(false);
+    } catch (err) {}
+  };
+
   return (
     <div className="h-full flex flex-col bg-slate-50">
       {/* Header (Hidden when printing usually, but we also use screen-only classes) */}
@@ -222,7 +296,10 @@ export default function Schedule() {
                         const dayCourses = courses.filter(c => c.dayOfWeek === day && (c.teacherId === teacher.id || c.coTeacherIds?.includes(teacher.id)));
                         
                         return (
-                          <div key={teacher.id} className={`w-24 ${printMode === 'teachers' ? '' : 'print:w-20'} shrink-0 relative border-r border-slate-100 last:border-r-0 ${tIdx % 2 !== 0 ? 'bg-slate-50/50 ' + (printMode === 'teachers' ? '' : 'print:bg-transparent') : ''}`}>
+                          <div key={teacher.id} 
+                            onClick={(e) => handleGridClick(day, teacher.id, e)}
+                            className={`w-24 ${printMode === 'teachers' ? '' : 'print:w-20'} shrink-0 relative border-r border-slate-100 last:border-r-0 cursor-pointer hover:bg-blue-50/30 transition-colors ${tIdx % 2 !== 0 ? 'bg-slate-50/50 ' + (printMode === 'teachers' ? '' : 'print:bg-transparent') : ''}`}
+                          >
                             {dayCourses.filter(printMode ? period.filter : () => true).map(course => {
                                 const startMins = timeToMinutes(course.startTime) - TIME_START * 60;
                                 const dur = timeToMinutes(course.endTime) - timeToMinutes(course.startTime);
@@ -233,7 +310,9 @@ export default function Schedule() {
                                 const bgColor = isUnavail ? '#f1f5f9' : (fac?.color || tClass?.color || '#e2e8f0');
     
                                 return (
-                                  <div key={course.id} className={`absolute left-0 right-0 rounded border p-1 overflow-hidden m-0.5 ${printMode === 'teachers' ? '' : 'print:break-inside-avoid'}`}
+                                  <div key={course.id} 
+                                    onClick={(e) => handleCourseClick(course, e)}
+                                    className={`absolute left-0 right-0 rounded border p-1 overflow-hidden m-0.5 cursor-pointer hover:shadow-md hover:brightness-95 transition-all ${printMode === 'teachers' ? '' : 'print:break-inside-avoid'}`}
                                     style={{
                                       top: `${(startMins / totalMins) * 100}%`,
                                       height: `calc(${(dur / totalMins) * 100}% - 4px)`,
@@ -430,6 +509,94 @@ export default function Schedule() {
                ))}
              </React.Fragment>
           ))}
+        </div>
+      )}
+
+      {/* Course Edit Modal */}
+      {showCourseModal && (
+        <div className="fixed inset-0 bg-slate-900/50 flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-xl shadow-xl w-full max-w-lg overflow-hidden flex flex-col">
+            <div className="px-6 py-4 border-b border-slate-100 flex justify-between items-center bg-slate-50">
+              <h2 className="font-bold text-slate-800 text-lg">{editingCourse.id ? 'Modifier le créneau' : 'Ajouter un créneau'}</h2>
+              <button onClick={() => setShowCourseModal(false)} className="text-slate-400 hover:text-slate-600 transition-colors">
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+            <div className="p-6 overflow-y-auto">
+              <form id="course-form" onSubmit={saveCourse} className="space-y-4">
+                <div className="grid grid-cols-2 gap-4">
+                  <div>
+                    <label className="block text-xs font-semibold text-slate-600 mb-1">Enseignant</label>
+                    <select required value={editingCourse.teacherId} onChange={e => setEditingCourse({...editingCourse, teacherId: e.target.value})} className="form-select w-full text-sm rounded-md border-slate-300">
+                      <option value="">-- Choisir --</option>
+                      {teachers.map(t => <option key={t.id} value={t.id}>{t.name}</option>)}
+                    </select>
+                  </div>
+                  <div>
+                    <label className="block text-xs font-semibold text-slate-600 mb-1">Jour</label>
+                    <select required value={editingCourse.dayOfWeek} onChange={e => setEditingCourse({...editingCourse, dayOfWeek: e.target.value})} className="form-select w-full text-sm rounded-md border-slate-300">
+                      {DAYS.map(d => <option key={d} value={d}>{d}</option>)}
+                    </select>
+                  </div>
+                  <div>
+                    <label className="block text-xs font-semibold text-slate-600 mb-1">Début</label>
+                    <input type="time" required value={editingCourse.startTime} onChange={e => setEditingCourse({...editingCourse, startTime: e.target.value})} className="form-input w-full text-sm rounded-md border-slate-300" />
+                  </div>
+                  <div>
+                    <label className="block text-xs font-semibold text-slate-600 mb-1">Fin</label>
+                    <input type="time" required value={editingCourse.endTime} onChange={e => setEditingCourse({...editingCourse, endTime: e.target.value})} className="form-input w-full text-sm rounded-md border-slate-300" />
+                  </div>
+                </div>
+
+                <div className="pt-4 border-t border-slate-100">
+                  <div className="flex items-center justify-between mb-4">
+                    <label className="text-sm font-semibold text-slate-700">Type de créneau</label>
+                    <label className="flex items-center gap-2 cursor-pointer">
+                      <input type="checkbox" checked={editingCourse.isUnavailability || false} onChange={e => setEditingCourse({...editingCourse, isUnavailability: e.target.checked, classId: '', facilityId: ''})} className="rounded text-blue-600" />
+                      <span className="text-sm text-slate-600">Marquer comme indisponibilité</span>
+                    </label>
+                  </div>
+
+                  {!editingCourse.isUnavailability ? (
+                    <div className="grid grid-cols-2 gap-4">
+                      <div>
+                        <label className="block text-xs font-semibold text-slate-600 mb-1">Classe</label>
+                        <select required value={editingCourse.classId} onChange={e => setEditingCourse({...editingCourse, classId: e.target.value})} className="form-select w-full text-sm rounded-md border-slate-300">
+                          <option value="">-- Choisir --</option>
+                          {classes.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
+                        </select>
+                      </div>
+                      <div>
+                        <label className="block text-xs font-semibold text-slate-600 mb-1">Installation sportive</label>
+                        <select value={editingCourse.facilityId || ""} onChange={e => setEditingCourse({...editingCourse, facilityId: e.target.value})} className="form-select w-full text-sm rounded-md border-slate-300">
+                          <option value="">-- Optionnel --</option>
+                          {facilities.map(f => <option key={f.id} value={f.id}>{f.name}</option>)}
+                        </select>
+                      </div>
+                    </div>
+                  ) : (
+                    <div>
+                      <label className="block text-xs font-semibold text-slate-600 mb-1">Motif d'indisponibilité</label>
+                      <input type="text" placeholder="Ex: Réunion, Décharge..." value={editingCourse.reason || ""} onChange={e => setEditingCourse({...editingCourse, reason: e.target.value})} className="form-input w-full text-sm rounded-md border-slate-300" />
+                    </div>
+                  )}
+                </div>
+              </form>
+            </div>
+            <div className="px-6 py-4 border-t border-slate-100 bg-slate-50 flex justify-between gap-2">
+              {editingCourse.id ? (
+                <button type="button" onClick={deleteCourse} className="px-4 py-2 bg-red-50 hover:bg-red-100 text-red-600 rounded-md font-medium transition-colors text-sm flex items-center gap-2">
+                  <Trash2 className="w-4 h-4" /> Supprimer
+                </button>
+              ) : <div></div>}
+              <div className="flex gap-2">
+                <button type="button" onClick={() => setShowCourseModal(false)} className="px-4 py-2 bg-white border border-slate-300 hover:bg-slate-50 text-slate-700 rounded-md font-medium transition-colors text-sm">Annuler</button>
+                <button type="submit" form="course-form" className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-md font-medium transition-colors text-sm flex items-center gap-2">
+                  {editingCourse.id ? <Edit className="w-4 h-4" /> : <Plus className="w-4 h-4" />} {editingCourse.id ? 'Mettre à jour' : 'Ajouter'}
+                </button>
+              </div>
+            </div>
+          </div>
         </div>
       )}
     </div>
