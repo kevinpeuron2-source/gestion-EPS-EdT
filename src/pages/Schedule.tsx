@@ -333,9 +333,28 @@ export default function Schedule() {
               </button>
            </div>
            
-           <button onClick={handleOpenPrintModal} className="bg-white border border-slate-200 hover:bg-slate-50 text-slate-700 px-4 py-2 rounded-md font-medium flex items-center gap-2 shadow-sm transition-colors">
-             <Printer className="w-4 h-4" /> Imprimer
-           </button>
+           <div className="flex gap-2">
+             <button 
+               onClick={() => {
+                 setEditingCourse({
+                   dayOfWeek: "Lundi",
+                   teacherId: teachers[0]?.id || "",
+                   startTime: "08:00",
+                   endTime: "10:00",
+                   classId: "",
+                   facilityId: "",
+                   weekType: "ALL"
+                 });
+                 setShowCourseModal(true);
+               }} 
+               className="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-md font-medium flex items-center gap-2 shadow-sm transition-colors"
+             >
+               <Plus className="w-4 h-4" /> Ajouter
+             </button>
+             <button onClick={handleOpenPrintModal} className="bg-white border border-slate-200 hover:bg-slate-50 text-slate-700 px-4 py-2 rounded-md font-medium flex items-center gap-2 shadow-sm transition-colors">
+               <Printer className="w-4 h-4" /> Imprimer
+             </button>
+           </div>
         </div>
       </header>
 
