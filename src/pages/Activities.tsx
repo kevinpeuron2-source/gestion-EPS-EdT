@@ -50,7 +50,7 @@ const [editingActivityId, setEditingActivityId] = useState<string | null>(null);
   const [absStart, setAbsStart] = useState<number>(1);
   const [absEnd, setAbsEnd] = useState<number>(1);
 
-  const [selectedSA, setSelectedSA] = useState<{ id: string, startWeekIdx: number, endWeekIdx: number, isLocked: boolean } | null>(null);
+  const [selectedSA, setSelectedSA] = useState<{ id?: string, activityId?: string, classId?: string, courseId?: string, startWeekIdx: number, endWeekIdx: number, isLocked: boolean } | null>(null);
 
   const [showPrintModal, setShowPrintModal] = useState(false);
   const [printStartWk, setPrintStartWk] = useState<number>(1);
@@ -81,11 +81,23 @@ const [editingActivityId, setEditingActivityId] = useState<string | null>(null);
     e.preventDefault();
     if (!selectedSA) return;
     try {
-      await updateDoc(doc(db, "scheduledActivities", selectedSA.id), {
-        startWeek: selectedSA.startWeekIdx + 1, // Store 1-based internal index
-        endWeek: selectedSA.endWeekIdx + 1,
-        isLocked: selectedSA.isLocked
-      });
+      if (selectedSA.id) {
+        await updateDoc(doc(db, "scheduledActivities", selectedSA.id), {
+          startWeek: selectedSA.startWeekIdx + 1,
+          endWeek: selectedSA.endWeekIdx + 1,
+          isLocked: selectedSA.isLocked
+        });
+      } else {
+        if (!selectedSA.activityId) return alert("Veuillez sélectionner une activité.");
+        await addDoc(collection(db, "scheduledActivities"), {
+          activityId: selectedSA.activityId,
+          classId: selectedSA.classId,
+          courseId: selectedSA.courseId,
+          startWeek: selectedSA.startWeekIdx + 1,
+          endWeek: selectedSA.endWeekIdx + 1,
+          isLocked: selectedSA.isLocked
+        });
+      }
       setSelectedSA(null);
     } catch(err) {
       console.error(err);
@@ -585,6 +597,28 @@ const [editingActivityId, setEditingActivityId] = useState<string | null>(null);
                               const width = ((renderEnd - renderStart + 1) / displayedTotalWks) * 100;
                               return <div key={h.id} className="absolute top-0 bottom-0 bg-amber-100/50 print:bg-amber-50 mix-blend-multiply" style={{ left: `${left}%`, width: `${width}%` }} title={h.name} />
                           })}
+                          {/* Clickable Grid Overlay */}
+                          <div className="absolute inset-0 flex pointer-events-none">
+                            {displayedWeekNumbers.map((calWeek, i) => {
+                              const actualWkIndex = i + 1 + offsetWks;
+                              return (
+                                <div 
+                                  key={`grid-${i}`} 
+                                  className="flex-1 h-full hover:bg-blue-600/10 cursor-pointer pointer-events-auto border-r border-slate-100/50 last:border-0 transition-colors z-0"
+                                  onClick={() => setSelectedSA({
+                                      activityId: "",
+                                      classId: c.id,
+                                      courseId: course.id,
+                                      startWeekIdx: actualWkIndex - 1,
+                                      endWeekIdx: Math.min(totalWks - 1, actualWkIndex - 1 + Math.max(0, activities[0]?.durationWeeks || 7) - 1),
+                                      isLocked: true
+                                  })}
+                                  title={`Ajouter une activité (Sem ${calWeek})`}
+                                />
+                              );
+                            })}
+                          </div>
+                          
                           {/* Draw SAs */}
                           {mySAs.map(sa => {
                           const act = activities.find(a => a.id === sa.activityId);
@@ -632,7 +666,7 @@ const [editingActivityId, setEditingActivityId] = useState<string | null>(null);
                                       endWeekIdx: sa.endWeek - 1,
                                       isLocked: !!sa.isLocked
                                     })}
-                                    className={`absolute top-0 bottom-0 m-0.5 px-2 flex flex-col justify-center overflow-hidden shadow-sm shadow-slate-200 cursor-pointer hover:brightness-95 transition-all ${idx === 0 ? 'rounded-l' : ''} ${idx === blocks.length - 1 ? 'rounded-r' : ''} ${idx > 0 && idx < blocks.length - 1 ? 'rounded-none' : ''}`}
+                                    className={`absolute top-0 bottom-0 m-0.5 px-2 z-10 flex flex-col justify-center overflow-hidden shadow-sm shadow-slate-200 cursor-pointer hover:brightness-95 transition-all ${idx === 0 ? 'rounded-l' : ''} ${idx === blocks.length - 1 ? 'rounded-r' : ''} ${idx > 0 && idx < blocks.length - 1 ? 'rounded-none' : ''}`}
                                     style={{ left: `${left}%`, width: `${width}%`, backgroundColor: fac?.color || '#e2e8f0' }}
                                     title={`${act?.name} (${fac?.name}) - Sem. ${calS} à ${calE}`}
                                   >
@@ -694,10 +728,31 @@ const [editingActivityId, setEditingActivityId] = useState<string | null>(null);
       {selectedSA && (
         <div className="fixed inset-0 bg-slate-900/40 backdrop-blur-sm flex items-center justify-center z-50 p-4">
           <div className="bg-white rounded-xl shadow-xl w-full max-w-sm overflow-hidden border border-slate-200">
+            
             <div className="px-6 py-4 border-b border-slate-100 bg-slate-50 flex justify-between items-center">
-              <h3 className="font-bold text-slate-800">Modifier l'activité</h3>
+              <h3 className="font-bold text-slate-800">{selectedSA.id ? "Modifier l'activité" : "Ajouter une activité"}</h3>
             </div>
             <form onSubmit={handleSASubmit} className="p-6 space-y-4">
+              {!selectedSA.id && (
+                <div>
+                  <label className="block text-xs font-semibold text-slate-600 mb-1">Activité</label>
+                  <select required value={selectedSA.activityId || ""} onChange={e => {
+                      const newActId = e.target.value;
+                      const act = activities.find(a => a.id === newActId);
+                      setSelectedSA({
+                        ...selectedSA, 
+                        activityId: newActId,
+                        endWeekIdx: act ? Math.min(totalWks - 1, selectedSA.startWeekIdx + act.durationWeeks - 1) : selectedSA.endWeekIdx
+                      });
+                    }} className="form-select w-full text-sm rounded-md border-slate-300">
+                    <option value="">-- Choisir une activité --</option>
+                    {activities.filter(a => selectedSA.classId ? a.classIds.includes(selectedSA.classId) : true).map(a => (
+                      <option key={a.id} value={a.id}>{a.name}</option>
+                    ))}
+                  </select>
+                </div>
+              )}
+
               <div className="flex gap-4">
                 <div className="flex-1">
                   <label className="block text-xs font-semibold text-slate-600 mb-1">Début (S.X)</label>

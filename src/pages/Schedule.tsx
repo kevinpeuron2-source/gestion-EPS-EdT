@@ -34,7 +34,9 @@ export default function Schedule() {
   const [showCourseModal, setShowCourseModal] = useState(false);
   const [creatingClass, setCreatingClass] = useState(false);
   const [newClassName, setNewClassName] = useState("");
-  const [editingCourse, setEditingCourse] = useState<{
+  const [addingSA, setAddingSA] = useState(false);
+      const [newSA, setNewSA] = useState({ activityId: '', startWeek: 1, endWeek: 1 });
+      const [editingCourse, setEditingCourse] = useState<{
     id?: string;
     dayOfWeek: string;
     teacherId: string;
@@ -296,7 +298,38 @@ export default function Schedule() {
     setShowCourseModal(true);
   };
 
+  
+  const handleSaveSA = async () => {
+    if (!newSA.activityId || !editingCourse.id || !editingCourse.classId) return;
+    try {
+      await addDoc(collection(db, "scheduledActivities"), {
+        activityId: newSA.activityId,
+        classId: editingCourse.classId,
+        courseId: editingCourse.id,
+        startWeek: newSA.startWeek,
+        endWeek: newSA.endWeek,
+        isLocked: true
+      });
+      setAddingSA(false);
+      alert("La période a été programmée.\nN'oubliez pas d'aller dans 'Répartition des activités' et de regénérer la répartition si nécessaire pour adapter le reste de l'année.");
+    } catch(err) {
+      console.error(err);
+    }
+  };
+
+  const handleDeleteSA = async (saId: string) => {
+    if (confirm("Supprimer cette activité programmée ?")) {
+      try {
+        await deleteDoc(doc(db, "scheduledActivities", saId));
+        alert("Activité supprimée.\nN'oubliez pas d'aller dans 'Répartition des activités' et de regénérer la répartition si nécessaire.");
+      } catch(err) {
+         console.error(err);
+      }
+    }
+  };
+
   const saveCourse = async (e: React.FormEvent) => {
+
     e.preventDefault();
     try {
       const payload: any = {};
@@ -489,7 +522,9 @@ export default function Schedule() {
                                         <div className="text-[9px] font-bold uppercase text-slate-600 truncate">{course.reason || 'Indispo'}</div>
                                       ) : isAbsent ? (
                                         <div className="text-[9px] font-bold uppercase text-red-600 bg-red-100 px-1 py-0.5 rounded inline-block truncate mt-1">Absent</div>
-                                      ) : (
+                    
+                    ) : (
+
                                         <>
                                           <div className="font-bold text-[10px] leading-tight text-slate-800 truncate">{tClass?.name || '?'}</div>
                                           {act && <div className="text-[8px] font-bold text-slate-900 mt-0.5 truncate">{act.name}</div>}
@@ -780,6 +815,71 @@ export default function Schedule() {
                       <input type="text" placeholder="Ex: Réunion, Décharge..." value={editingCourse.reason || ""} onChange={e => setEditingCourse({...editingCourse, reason: e.target.value})} className="form-input w-full text-sm rounded-md border-slate-300" />
                     </div>
                   )}
+{editingCourse.id && !editingCourse.isUnavailability && editingCourse.classId && (
+                      <div className="pt-4 mt-2 border-t border-slate-100 col-span-2">
+                        <div className="flex items-center justify-between mb-3">
+                          <label className="text-sm font-semibold text-slate-700">Programmation manuelle (Activités)</label>
+                          <button type="button" onClick={() => setAddingSA(true)} className="text-xs text-blue-600 hover:text-blue-800 flex items-center gap-1 font-medium"><Plus className="w-3 h-3"/> Ajouter une période</button>
+                        </div>
+                        
+                        {addingSA && (
+                          <div className="bg-blue-50/50 border border-blue-100 p-3 rounded-md mb-3 space-y-3">
+                            <div>
+                               <label className="block text-xs font-semibold text-slate-600 mb-1">Activité</label>
+                               <select value={newSA.activityId} onChange={e => {
+                                  const actId = e.target.value;
+                                  const act = activities.find(a => a.id === actId);
+                                  setNewSA({
+                                    ...newSA, 
+                                    activityId: actId,
+                                    endWeek: act ? Math.min(52, newSA.startWeek + act.durationWeeks - 1) : newSA.endWeek
+                                  });
+                               }} className="form-select w-full text-sm rounded-md border-slate-300">
+                                 <option value="">-- Choisir --</option>
+                                 {activities.filter(a => a.classIds.includes(editingCourse.classId!)).map(a => <option key={a.id} value={a.id}>{a.name}</option>)}
+                               </select>
+                            </div>
+                            <div className="flex gap-3">
+                               <div className="flex-1">
+                                 <label className="block text-xs font-semibold text-slate-600 mb-1">Début (Sem.)</label>
+                                 <input type="number" min="1" max="52" value={newSA.startWeek} onChange={e => setNewSA({...newSA, startWeek: parseInt(e.target.value) || 1})} className="form-input w-full text-sm rounded-md border-slate-300" />
+                               </div>
+                               <div className="flex-1">
+                                 <label className="block text-xs font-semibold text-slate-600 mb-1">Fin (Sem.)</label>
+                                 <input type="number" min="1" max="52" value={newSA.endWeek} onChange={e => setNewSA({...newSA, endWeek: parseInt(e.target.value) || 1})} className="form-input w-full text-sm rounded-md border-slate-300" />
+                               </div>
+                            </div>
+                            <div className="flex gap-2 justify-end pt-1">
+                               <button type="button" onClick={() => setAddingSA(false)} className="px-3 py-1.5 text-xs font-medium text-slate-600 hover:text-slate-800 hover:bg-slate-200 rounded transition-colors">Annuler</button>
+                               <button type="button" onClick={handleSaveSA} className="px-3 py-1.5 text-xs font-medium text-white bg-blue-600 hover:bg-blue-700 rounded transition-colors shadow-sm">Enregistrer la période</button>
+                            </div>
+                          </div>
+                        )}
+
+                        <div className="space-y-2">
+                           {scheduledActivities.filter(sa => sa.courseId === editingCourse.id).sort((a,b) => a.startWeek - b.startWeek).map(sa => {
+                              const act = activities.find(a => a.id === sa.activityId);
+                              return (
+                                 <div key={sa.id} className="flex items-center justify-between bg-white border border-slate-200 shadow-sm rounded-md p-2.5 text-xs group">
+                                    <div className="flex flex-col">
+                                      <span className="font-bold text-slate-800">{act?.name || 'Activité inconnue'}</span> 
+                                      <span className="text-slate-500 font-medium mt-0.5">Semaine {sa.startWeek} à {sa.endWeek}</span>
+                                    </div>
+                                    <button type="button" onClick={() => handleDeleteSA(sa.id)} className="p-1.5 text-slate-400 hover:text-red-600 hover:bg-red-50 rounded transition-colors" title="Supprimer">
+                                      <Trash2 className="w-3.5 h-3.5"/>
+                                    </button>
+                                 </div>
+                              )
+                           })}
+                           {scheduledActivities.filter(sa => sa.courseId === editingCourse.id).length === 0 && !addingSA && (
+                             <div className="text-xs text-slate-400 italic text-center py-4 bg-slate-50 border border-slate-100 rounded-md">
+                               Aucune activité programmée spécifiquement sur ce créneau.
+                             </div>
+                           )}
+                        </div>
+                      </div>
+                    )}
+                  
                 </div>
               </form>
             </div>
