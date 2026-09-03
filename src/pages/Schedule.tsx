@@ -1,6 +1,6 @@
 import React, { useState } from "react";
 import { useStore } from "../store/useStore";
-import { Printer, Users, User, X, Trash2, Plus, Edit, ChevronLeft, ChevronRight, Calendar as CalendarIcon } from "lucide-react";
+import { Printer, Users, User, X, Trash2, Plus, Edit, ChevronLeft, ChevronRight, Calendar as CalendarIcon, CheckSquare } from "lucide-react";
 import { db } from "../lib/firebase";
 import { collection, addDoc, deleteDoc, doc, updateDoc } from "firebase/firestore";
 import { Course } from "../types";
@@ -32,6 +32,8 @@ export default function Schedule() {
   const [printType, setPrintType] = useState<'neutral' | 'planned'>('neutral');
 
   const [showCourseModal, setShowCourseModal] = useState(false);
+  const [creatingClass, setCreatingClass] = useState(false);
+  const [newClassName, setNewClassName] = useState("");
   const [editingCourse, setEditingCourse] = useState<{
     id?: string;
     dayOfWeek: string;
@@ -292,6 +294,23 @@ export default function Schedule() {
       setShowCourseModal(false);
     } catch (err) {
       console.error(err);
+    }
+  };
+
+  
+  const handleSaveNewClass = async () => {
+    if (!newClassName.trim()) return;
+    try {
+      const docRef = await addDoc(collection(db, "classes"), {
+        name: newClassName.trim(),
+        color: "#" + Math.floor(Math.random()*16777215).toString(16).padStart(6, '0'),
+        level: ""
+      });
+      setEditingCourse({ ...editingCourse, classId: docRef.id });
+      setCreatingClass(false);
+      setNewClassName("");
+    } catch (e) {
+      console.error(e);
     }
   };
 
@@ -698,10 +717,29 @@ export default function Schedule() {
                     <div className="grid grid-cols-2 gap-4">
                       <div>
                         <label className="block text-xs font-semibold text-slate-600 mb-1">Classe</label>
-                        <select required value={editingCourse.classId} onChange={e => setEditingCourse({...editingCourse, classId: e.target.value})} className="form-select w-full text-sm rounded-md border-slate-300">
-                          <option value="">-- Choisir --</option>
-                          {classes.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
-                        </select>
+                        {creatingClass ? (
+                          <div className="flex gap-2">
+                            <input 
+                              type="text" 
+                              autoFocus
+                              placeholder="Nom (ex: 6e A)" 
+                              value={newClassName}
+                              onChange={e => setNewClassName(e.target.value)}
+                              className="form-input text-sm flex-1 rounded-md border-slate-300"
+                            />
+                            <button type="button" onClick={handleSaveNewClass} className="bg-blue-600 text-white px-3 py-1 rounded-md text-sm hover:bg-blue-700"><CheckSquare className="w-4 h-4" /></button>
+                            <button type="button" onClick={() => { setCreatingClass(false); setNewClassName(""); }} className="bg-slate-200 text-slate-700 px-3 py-1 rounded-md text-sm hover:bg-slate-300"><X className="w-4 h-4" /></button>
+                          </div>
+                        ) : (
+                          <select required value={editingCourse.classId} onChange={e => {
+                            if (e.target.value === "NEW") setCreatingClass(true);
+                            else setEditingCourse({...editingCourse, classId: e.target.value});
+                          }} className="form-select w-full text-sm rounded-md border-slate-300">
+                            <option value="">-- Choisir --</option>
+                            {classes.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
+                            <option value="NEW">+ Ajouter une classe...</option>
+                          </select>
+                        )}
                       </div>
                       <div>
                         <label className="block text-xs font-semibold text-slate-600 mb-1">Installation sportive</label>
