@@ -2,6 +2,7 @@ export interface ScheduledActivity {
   id: string;
   activityId: string;
   classId: string;
+  courseId: string;
   startWeek: number;
   endWeek: number;
   isLocked?: boolean;
@@ -69,11 +70,12 @@ export interface Course {
   id: string;
   teacherId: string;
   coTeacherIds?: string[];
-  classId: string; // Will be empty or "UNAVAILABLE" if it's an unavailability
+  classId: string;
   facilityId?: string;
+  activityId?: string;
   dayOfWeek: string;
-  startTime: string; // e.g. "08:00"
-  endTime: string;   // e.g. "09:00"
+  startTime: string;
+  endTime: string;
   weekType?: 'ALL' | 'A' | 'B';
   cycleId?: string;
   locked?: boolean;

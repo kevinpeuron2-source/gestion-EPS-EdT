@@ -226,12 +226,13 @@ const [editingActivityId, setEditingActivityId] = useState<string | null>(null);
     return false;
   };
 
+  
   const generateSchedule = async () => {
     setOptimizing(true);
     try {
       const lockedSAs = scheduledActivities.filter(sa => sa.isLocked);
       const unlockedSAs = scheduledActivities.filter(sa => !sa.isLocked);
-
+      
       for (const sa of unlockedSAs) {
         await deleteDoc(doc(db, "scheduledActivities", sa.id));
       }
@@ -241,43 +242,46 @@ const [editingActivityId, setEditingActivityId] = useState<string | null>(null);
         return h * 60 + m;
       };
 
-      const checkOverlap = (c1Id: string, c2Id: string) => {
-        const cs1 = courses.filter(c => c.classId === c1Id);
-        const cs2 = courses.filter(c => c.classId === c2Id);
-        for(const c1 of cs1) {
-          for(const c2 of cs2) {
-            if (c1.dayOfWeek === c2.dayOfWeek) {
-              const start1 = timeToMin(c1.startTime);
-              const end1 = timeToMin(c1.endTime);
-              const start2 = timeToMin(c2.startTime);
-              const end2 = timeToMin(c2.endTime);
-              if (start1 < end2 && end1 > start2) return true;
-            }
-          }
+      const checkCourseOverlap = (c1: any, c2: any) => {
+        if (c1.dayOfWeek === c2.dayOfWeek) {
+          const start1 = timeToMin(c1.startTime);
+          const end1 = timeToMin(c1.endTime);
+          const start2 = timeToMin(c2.startTime);
+          const end2 = timeToMin(c2.endTime);
+          if (start1 < end2 && end1 > start2) return true;
         }
         return false;
       };
 
       const allocations: Record<string, Record<number, string[]>> = {};
-      
-      // Initialize allocations with locked SAs
+
       for (const sa of lockedSAs) {
          const act = activities.find(a => a.id === sa.activityId);
          if (!act) continue;
-         const facId = act.facilityId;
+         const trackFacId = act.facilityId || 'NONE_' + act.id;
          for (let w = sa.startWeek; w <= sa.endWeek; w++) {
-            if (!allocations[facId]) allocations[facId] = {};
-            if (!allocations[facId][w]) allocations[facId][w] = [];
-            allocations[facId][w].push(sa.classId);
+            if (!allocations[trackFacId]) allocations[trackFacId] = {};
+            if (!allocations[trackFacId][w]) allocations[trackFacId][w] = [];
+            allocations[trackFacId][w].push(sa.courseId);
          }
       }
+      
+      courses.forEach(c => {
+         if (c.activityId && c.facilityId) { 
+            const facId = c.facilityId;
+            for (let w = 1; w <= totalWks; w++) {
+               if (!allocations[facId]) allocations[facId] = {};
+               if (!allocations[facId][w]) allocations[facId][w] = [];
+               allocations[facId][w].push(c.id);
+            }
+         }
+      });
 
       const toPlace = [];
       for (const a of activities) {
         for (const cid of a.classIds) {
-          // Check if it's already locked
-          const isAlreadyLocked = lockedSAs.some(sa => sa.activityId === a.id && sa.classId === cid);
-          if (!isAlreadyLocked) {
+          const isClassLockedForThis = lockedSAs.some(sa => sa.activityId === a.id && sa.classId === cid);
+          if (!isClassLockedForThis) {
             toPlace.push({ activity: a, classId: cid });
           }
         }
@@ -286,92 +290,97 @@ const [editingActivityId, setEditingActivityId] = useState<string | null>(null);
       toPlace.sort((x, y) => {
         if (x.activity.isMandatoryPeriod && !y.activity.isMandatoryPeriod) return -1;
         if (!x.activity.isMandatoryPeriod && y.activity.isMandatoryPeriod) return 1;
-        
         if (x.activity.groupCycles && !y.activity.groupCycles) return -1;
         if (!x.activity.groupCycles && y.activity.groupCycles) return 1;
-
         if (x.activity.id !== y.activity.id) return x.activity.id.localeCompare(y.activity.id);
-
         return y.activity.durationWeeks - x.activity.durationWeeks;
       });
-      const toSave = [];
 
+      const toSave = [];
       for (const item of toPlace) {
         const { activity, classId } = item;
         const dur = activity.durationWeeks;
-        const facId = activity.facilityId;
+        const trackFacId = activity.facilityId || 'NONE_' + activity.id;
         
         let bestStart = 1;
         let bestEnd = dur;
+        let bestCourseId = null;
         let placed = false;
-
         let prefStartIdx = 0;
         let prefEndIdx = 0;
+        
         if (activity.preferredStartWeek && activity.preferredEndWeek) {
            prefStartIdx = weekNumbers.indexOf(activity.preferredStartWeek) + 1;
            prefEndIdx = weekNumbers.indexOf(activity.preferredEndWeek) + 1;
         }
 
+        const classCourses = courses.filter(c => c.classId === classId && !c.isUnavailability && !c.activityId);
+
         for (let w = 1; w <= totalWks; w++) {
           if (isHoliday(w)) continue;
-
-          // Mandatory constraint check
           if (activity.isMandatoryPeriod && prefStartIdx > 0 && prefEndIdx > 0) {
             if (w < prefStartIdx || w > prefEndIdx) continue;
           }
-
-          let canPlace = true;
-          let teachingWeeks = 0;
-          let currWeek = w;
-
-          while (teachingWeeks < dur && currWeek <= totalWks) {
-            const isAbsent = checkIfAbsent(classId, currWeek, weekNumbers[currWeek - 1]);
-            if (isHoliday(currWeek) || isAbsent) {
-              currWeek++;
-              continue;
-            }
-
-            const inFac = allocations[facId]?.[currWeek] || [];
-            const overlappingClasses = inFac.filter(otherC => checkOverlap(classId, otherC));
-            const facility = facilities.find(f => f.id === facId);
-            const maxCapacity = activity.maxCapacity || facility?.capacity || 1;
-
-            if (overlappingClasses.length >= maxCapacity) {
-               canPlace = false;
+          
+          for (const course of classCourses) {
+             let canPlace = true;
+             let teachingWeeks = 0;
+             let currWeek = w;
+             
+             while (teachingWeeks < dur && currWeek <= totalWks) {
+               const isAbsent = checkIfAbsent(classId, currWeek, weekNumbers[currWeek - 1]);
+               if (isHoliday(currWeek) || isAbsent) {
+                 currWeek++;
+                 continue;
+               }
+               
+               const isCourseBusy = Object.values(allocations).some(facWg => facWg[currWeek]?.includes(course.id));
+               if (isCourseBusy) {
+                  canPlace = false; break;
+               }
+               
+               if (activity.facilityId) {
+                  const inFac = allocations[activity.facilityId]?.[currWeek] || [];
+                  const overlappingCourses = inFac.filter(otherCourseId => {
+                     const otherCourse = courses.find(c => c.id === otherCourseId);
+                     return otherCourse ? checkCourseOverlap(course, otherCourse) : false;
+                  });
+                  const facility = facilities.find(f => f.id === activity.facilityId);
+                  const maxCapacity = activity.maxCapacity || facility?.capacity || 1;
+                  if (overlappingCourses.length >= maxCapacity) {
+                     canPlace = false; break;
+                  }
+               }
+               
+               teachingWeeks++;
+               if (teachingWeeks < dur) currWeek++;
+             }
+             
+             if (canPlace && teachingWeeks === dur) {
+               bestStart = w;
+               bestEnd = currWeek;
+               bestCourseId = course.id;
+               placed = true;
                break;
-            }
-            const isBusyElsewhere = Object.values(allocations).some(facWg => facWg[currWeek]?.includes(classId));
-            if (isBusyElsewhere) {
-               canPlace = false;
-               break;
-            }
-            
-            teachingWeeks++;
-            if (teachingWeeks < dur) currWeek++;
+             }
           }
-
-          if (canPlace && teachingWeeks === dur) {
-            bestStart = w;
-            bestEnd = currWeek;
-            placed = true;
-            break;
-          }
+          if (placed) break;
         }
-
-        if (placed) {
+        
+        if (placed && bestCourseId) {
           let tWk = 0;
           let cw = bestStart;
           while (tWk < dur && cw <= bestEnd) {
              const isAbsent = checkIfAbsent(classId, cw, weekNumbers[cw - 1]);
              if (!isHoliday(cw) && !isAbsent) {
-               if (!allocations[facId]) allocations[facId] = {};
-               if (!allocations[facId][cw]) allocations[facId][cw] = [];
-               allocations[facId][cw].push(classId);
+               if (!allocations[trackFacId]) allocations[trackFacId] = {};
+               if (!allocations[trackFacId][cw]) allocations[trackFacId][cw] = [];
+               allocations[trackFacId][cw].push(bestCourseId);
                tWk++;
              }
              cw++;
           }
-          toSave.push({ activityId: activity.id, classId, startWeek: bestStart, endWeek: bestEnd });
+          toSave.push({ activityId: activity.id, classId, courseId: bestCourseId, startWeek: bestStart, endWeek: bestEnd });
         }
       }
 
@@ -385,6 +394,7 @@ const [editingActivityId, setEditingActivityId] = useState<string | null>(null);
       setOptimizing(false);
     }
   };
+
 
   return (
     <div className={`p-8 max-w-5xl mx-auto space-y-12 ${isPrintingRange ? 'print:p-0 print:space-y-0 print:max-w-none print:m-0' : ''}`}>
@@ -541,43 +551,42 @@ const [editingActivityId, setEditingActivityId] = useState<string | null>(null);
               </div>
               
               <div className={isPrintingRange && (printFit === 'contain' || printFit === 'height') ? "flex flex-col h-[155mm] gap-1" : "space-y-3"}>
-                {classes.map(c => {
-                  const mySAs = scheduledActivities.filter(sa => sa.classId === c.id);
-                  if (mySAs.length === 0) return null;
+                {classes.flatMap(c => {
+                  const classCourses = courses.filter(crs => crs.classId === c.id && !crs.isUnavailability && !crs.activityId);
+                  if (classCourses.length === 0) return [];
                   
-                  return (
-                    <div key={c.id} className={`flex items-center ${isPrintingRange && (printFit === 'contain' || printFit === 'height') ? 'flex-1 min-h-0' : 'min-h-[32px]'}`}>
-                      <div className="w-32 print:w-24 shrink-0 text-sm font-medium text-slate-800 flex flex-col justify-center">
-                         <div className="flex items-center gap-2">
-                           <div className="w-2 h-2 rounded-full shrink-0" style={{ backgroundColor: c.color }} />
-                           <span className="print:text-xs truncate">{c.name}</span>
-                         </div>
-                         {c.level === 'Terminale' && c.catchUpDate && (
-                           <div className="text-[9px] text-slate-400 truncate mt-0.5 print:hidden" title={`Rattrapages: ${c.catchUpDate}`}>Rattrapage: {c.catchUpDate}</div>
-                         )}
-                         {c.level === 'Terminale' && c.ccfDeadline && (
-                           <div className="text-[9px] text-slate-400 truncate mt-0.5" title={`Arrêt CCF: ${c.ccfDeadline}`}>CCF: {c.ccfDeadline}</div>
-                         )}
-                      </div>
-                      <div className="flex-1 flex relative h-full min-h-[16px] bg-slate-50 print:bg-white rounded-md border border-slate-100 overflow-hidden">
-                        {/* Draw Holidays Background */}
-                        {settings?.holidays?.map(h => {
-                            const calWeeks = getWeekNumbers(h.startWeek, h.endWeek);
-                            const hStartIdx = weekNumbers.indexOf(calWeeks[0]);
-                            const hEndIdx = weekNumbers.indexOf(calWeeks[calWeeks.length - 1]);
-                            if (hStartIdx === -1 || hEndIdx === -1) return null; // out of scope
-                            
-                            const renderStart = Math.max(0, hStartIdx - offsetWks);
-                            const renderEnd = Math.min(displayedTotalWks - 1, hEndIdx - offsetWks);
-                            if (renderStart > displayedTotalWks - 1 || renderEnd < 0) return null;
-
-                            const left = (renderStart / displayedTotalWks) * 100;
-                            const width = ((renderEnd - renderStart + 1) / displayedTotalWks) * 100;
-                            return <div key={h.id} className="absolute top-0 bottom-0 bg-amber-100/50 print:bg-amber-50 mix-blend-multiply" style={{ left: `${left}%`, width: `${width}%` }} title={h.name} />
-                        })}
-
-                        {/* Draw SAs */}
-                        {mySAs.map(sa => {
+                  return classCourses.map(course => {
+                    const mySAs = scheduledActivities.filter(sa => sa.courseId === course.id);
+                    if (mySAs.length === 0) return null;
+                    
+                    return (
+                      <div key={course.id} className={`flex items-center ${isPrintingRange && (printFit === 'contain' || printFit === 'height') ? 'flex-1 min-h-0' : 'min-h-[32px]'}`}>
+                        <div className="w-32 print:w-24 shrink-0 text-sm font-medium text-slate-800 flex flex-col justify-center">
+                           <div className="flex items-center gap-2">
+                             <div className="w-2 h-2 rounded-full shrink-0" style={{ backgroundColor: c.color }} />
+                             <span className="print:text-xs truncate flex flex-col leading-tight">
+                               <span>{c.name}</span>
+                               <span className="text-[9px] text-slate-500 font-normal">{course.dayOfWeek.substring(0,3)} {course.startTime}</span>
+                             </span>
+                           </div>
+                        </div>
+                        <div className="flex-1 flex relative h-full min-h-[16px] bg-slate-50 print:bg-white rounded-md border border-slate-100 overflow-hidden">
+                          {/* Draw Holidays Background */}
+                          {settings?.holidays?.map(h => {
+                              const calWeeks = getWeekNumbers(h.startWeek, h.endWeek);
+                              const hStartIdx = weekNumbers.indexOf(calWeeks[0]);
+                              const hEndIdx = weekNumbers.indexOf(calWeeks[calWeeks.length - 1]);
+                              if (hStartIdx === -1 || hEndIdx === -1) return null; // out of scope
+                              
+                              const renderStart = Math.max(0, hStartIdx - offsetWks);
+                              const renderEnd = Math.min(displayedTotalWks - 1, hEndIdx - offsetWks);
+                              if (renderStart > displayedTotalWks - 1 || renderEnd < 0) return null;
+                              const left = (renderStart / displayedTotalWks) * 100;
+                              const width = ((renderEnd - renderStart + 1) / displayedTotalWks) * 100;
+                              return <div key={h.id} className="absolute top-0 bottom-0 bg-amber-100/50 print:bg-amber-50 mix-blend-multiply" style={{ left: `${left}%`, width: `${width}%` }} title={h.name} />
+                          })}
+                          {/* Draw SAs */}
+                          {mySAs.map(sa => {
                           const act = activities.find(a => a.id === sa.activityId);
                           const fac = facilities.find(f => f.id === act?.facilityId);
                           // sa.startWeek and sa.endWeek are relative indices 1..totalWks
@@ -668,6 +677,7 @@ const [editingActivityId, setEditingActivityId] = useState<string | null>(null);
                       </div>
                     </div>
                   );
+                  });
                 })}
               </div>
             </div>

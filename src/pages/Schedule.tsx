@@ -42,6 +42,7 @@ export default function Schedule() {
     endTime: string;
     classId: string;
     facilityId: string;
+    activityId?: string;
     isUnavailability?: boolean;
     reason?: string;
     weekType?: 'ALL' | 'A' | 'B';
@@ -51,8 +52,9 @@ export default function Schedule() {
     startTime: "08:00",
     endTime: "09:00",
     classId: "",
-    facilityId: "",
-    weekType: "ALL"
+      facilityId: "",
+      activityId: "",
+      weekType: "ALL"
   });
 
   const pxPerMinute = printMode ? 1.0 : PX_PER_MINUTE; // Fallback for specific scale
@@ -96,14 +98,19 @@ export default function Schedule() {
     courses.forEach(c => {
        const absent = isHoli || checkIfAbsent(c.classId);
        let facId = c.facilityId;
+       let actId = c.activityId || undefined;
        if (!absent && currentInternalWeek > 0) {
           const sa = scheduledActivities.find(sa => sa.classId === c.classId && currentInternalWeek >= sa.startWeek && currentInternalWeek <= sa.endWeek);
-          if (sa) {
-             const act = activities.find(a => a.id === sa.activityId);
-             if (act && act.facilityId) facId = act.facilityId;
+          // If the course explicitly has an activityId, we use it, otherwise fallback to class scheduled activity
+          const resolvedActId = c.activityId || sa?.activityId;
+          if (resolvedActId) {
+             const act = activities.find(a => a.id === resolvedActId);
+             actId = act?.id;
+             // Only override facility if course didn't have a specific facility assigned manually, OR if it's the class schedule overriding it
+             if (act && act.facilityId && (!c.facilityId || !c.activityId)) facId = act.facilityId;
           }
        }
-       sigObj[c.id] = absent ? "ABS" : facId;
+       sigObj[c.id] = absent ? "ABS" : { facId, actId };
     });
 
     return {
@@ -117,16 +124,21 @@ export default function Schedule() {
           return sigObj[course.id] !== "ABS";
        },
        getFacility: (course: Course) => {
-          const facId = sigObj[course.id];
-          if (facId && facId !== "ABS") return facilities.find(f => f.id === facId);
+          const sig = sigObj[course.id];
+          if (sig && sig !== "ABS" && sig.facId) return facilities.find(f => f.id === sig.facId);
           return facilities.find(f => f.id === course.facilityId);
+       },
+       getActivity: (course: Course) => {
+          const sig = sigObj[course.id];
+          if (sig && sig !== "ABS" && sig.actId) return activities.find(a => a.id === sig.actId);
+          return activities.find(a => a.id === course.activityId);
        },
        isAbsent: (course: Course) => sigObj[course.id] === "ABS"
     };
   }, [currentCalendarWeek, currentInternalWeek, isWeekA, courses, absences, classes, scheduledActivities, activities, facilities, settings]);
 
   const periods = React.useMemo(() => {
-    if (printType === 'neutral') return [{ id: 'neutral', name: 'Neutre', filter: () => true, getFacility: (course: any) => facilities.find(f => f.id === course.facilityId), isAbsent: () => false }];
+    if (printType === 'neutral') return [{ id: 'neutral', name: 'Neutre', filter: () => true, getFacility: (course: any) => facilities.find(f => f.id === course.facilityId), getActivity: (course: any) => activities.find(a => a.id === course.activityId), isAbsent: () => false }];
 
     const startW = settings?.startWeek || 36;
     const endW = settings?.endWeek || 26;
@@ -161,14 +173,17 @@ export default function Schedule() {
       courses.forEach(c => {
          const absent = checkIfAbsent(c.classId, w, calW);
          let facId = c.facilityId;
+         let actId = c.activityId || undefined;
          if (!absent) {
             const sa = scheduledActivities.find(sa => sa.classId === c.classId && w >= sa.startWeek && w <= sa.endWeek);
-            if (sa) {
-               const act = activities.find(a => a.id === sa.activityId);
-               if (act && act.facilityId) facId = act.facilityId;
+            const resolvedActId = c.activityId || sa?.activityId;
+            if (resolvedActId) {
+               const act = activities.find(a => a.id === resolvedActId);
+               actId = act?.id;
+               if (act && act.facilityId && (!c.facilityId || !c.activityId)) facId = act.facilityId;
             }
          }
-         sigObj[c.id] = absent ? "ABS" : facId;
+         sigObj[c.id] = absent ? "ABS" : { facId, actId };
       });
 
       const signature = JSON.stringify(sigObj);
@@ -192,9 +207,14 @@ export default function Schedule() {
        name: `Période ${i + 1} (Sem ${weekNumbers[p.startInternalWk - 1]} à ${weekNumbers[p.endInternalWk - 1]})`,
        filter: (course: any) => p.sigObj[course.id] !== "ABS",
        getFacility: (course: any) => {
-          const facId = p.sigObj[course.id];
-          if (facId && facId !== "ABS") return facilities.find(f => f.id === facId);
+          const sig = p.sigObj[course.id];
+          if (sig && sig !== "ABS" && sig.facId) return facilities.find(f => f.id === sig.facId);
           return facilities.find(f => f.id === course.facilityId);
+       },
+       getActivity: (course: any) => {
+          const sig = p.sigObj[course.id];
+          if (sig && sig !== "ABS" && sig.actId) return activities.find(a => a.id === sig.actId);
+          return activities.find(a => a.id === course.activityId);
        },
        isAbsent: (course: any) => p.sigObj[course.id] === "ABS"
     }));
@@ -263,6 +283,7 @@ export default function Schedule() {
       endTime,
       classId: "",
       facilityId: "",
+      activityId: "",
       weekType: "ALL"
     });
     setShowCourseModal(true);
@@ -361,8 +382,9 @@ export default function Schedule() {
                    startTime: "08:00",
                    endTime: "10:00",
                    classId: "",
-                   facilityId: "",
-                   weekType: "ALL"
+      facilityId: "",
+      activityId: "",
+      weekType: "ALL"
                  });
                  setShowCourseModal(true);
                }} 
@@ -441,6 +463,7 @@ export default function Schedule() {
                                 const dur = timeToMinutes(course.endTime) - timeToMinutes(course.startTime);
                                 const tClass = classes.find(c => c.id === course.classId);
                                 const fac = period.getFacility(course);
+                                const act = period.getActivity ? period.getActivity(course) : undefined;
                                 const isAbsent = period.isAbsent(course);
                                 const isUnavail = course.isUnavailability;
                                 const bgColor = isUnavail ? '#f1f5f9' : (fac?.color || tClass?.color || '#e2e8f0');
@@ -469,6 +492,7 @@ export default function Schedule() {
                                       ) : (
                                         <>
                                           <div className="font-bold text-[10px] leading-tight text-slate-800 truncate">{tClass?.name || '?'}</div>
+                                          {act && <div className="text-[8px] font-bold text-slate-900 mt-0.5 truncate">{act.name}</div>}
                                           {fac && <div className="text-[8px] font-medium text-slate-700 mt-0.5 bg-white/40 px-0.5 rounded inline-block truncate max-w-full">{fac.name}</div>}
                                         </>
                                       )}
@@ -615,7 +639,8 @@ export default function Schedule() {
                                  const dur = timeToMinutes(course.endTime) - timeToMinutes(course.startTime);
                                  const tClass = classes.find(c => c.id === course.classId);
                                  const fac = period.getFacility(course);
-                                 const isAbsent = period.isAbsent(course);
+                                const act = period.getActivity ? period.getActivity(course) : undefined;
+                                const isAbsent = period.isAbsent(course);
                                  const isUnavail = course.isUnavailability;
                                  const bgColor = isUnavail ? '#f1f5f9' : (fac?.color || tClass?.color || '#e2e8f0');
      
