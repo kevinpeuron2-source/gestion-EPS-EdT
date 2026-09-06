@@ -115,6 +115,20 @@ export default function Settings() {
   const [startWeek, setStartWeek] = useState(settings?.startWeek || 36);
   const [endWeek, setEndWeek] = useState(settings?.endWeek || 27);
   const [holidays, setHolidays] = useState([...(settings?.holidays || [])]);
+
+  const getWeekNumbers = (start: number, end: number) => {
+    const weeks = [];
+    let current = start;
+    while (true) {
+      weeks.push(current);
+      if (current === end) break;
+      current++;
+      if (current > 52) current = 1;
+      if (weeks.length > 53) break;
+    }
+    return weeks;
+  };
+  const weekNumbers = getWeekNumbers(startWeek, endWeek);
   const [bellTimes, setBellTimes] = useState(settings?.bellTimes || ["08:15", "09:10", "10:05", "10:20", "11:15", "11:55", "12:20", "12:45", "13:15", "13:45", "14:45", "15:15", "15:45", "16:50"]);
 
   React.useEffect(() => {

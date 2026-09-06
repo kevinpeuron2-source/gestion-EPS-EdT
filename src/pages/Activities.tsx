@@ -230,7 +230,11 @@ const [editingActivityId, setEditingActivityId] = useState<string | null>(null);
   };
 
   const checkIfAbsent = (cId: string, internalWk: number, calWk: number) => {
-    if (absences.some(a => a.classId === cId && calWk >= a.startWeek && calWk <= a.endWeek)) return true;
+    if (absences.some(a => {
+      if (a.classId !== cId) return false;
+      const aStart = getWeekNumbers(a.startWeek, a.endWeek);
+      return aStart.includes(calWk);
+    })) return true;
     const cls = classes.find(c => c.id === cId);
     if (cls?.internships) {
       if (cls.internships.some(i => internalWk >= i.startWeek && internalWk <= i.endWeek)) return true;
@@ -539,7 +543,7 @@ const [editingActivityId, setEditingActivityId] = useState<string | null>(null);
         {isPrintingRange && (
           <div className="hidden print:block mb-4 text-center">
             <h2 className="text-xl font-bold text-slate-800">
-              Répartition des Activités - Semaines internes {printStartWk} à {printEndWk}
+              Répartition des Activités - Semaines {weekNumbers[printStartWk - 1]} à {weekNumbers[printEndWk - 1]}
             </h2>
           </div>
         )}
@@ -755,12 +759,16 @@ const [editingActivityId, setEditingActivityId] = useState<string | null>(null);
 
               <div className="flex gap-4">
                 <div className="flex-1">
-                  <label className="block text-xs font-semibold text-slate-600 mb-1">Début (S.X)</label>
-                  <input type="number" min="1" max="52" required value={selectedSA.startWeekIdx + 1} onChange={e => setSelectedSA({...selectedSA, startWeekIdx: parseInt(e.target.value) - 1})} className="form-input w-full text-sm rounded-md border-slate-300" />
+                  <label className="block text-xs font-semibold text-slate-600 mb-1">Début (Sem. calendaire)</label>
+                  <select required value={selectedSA.startWeekIdx} onChange={e => setSelectedSA({...selectedSA, startWeekIdx: parseInt(e.target.value)})} className="form-select w-full text-sm rounded-md border-slate-300">
+                    {weekNumbers.map((wk, i) => <option key={i} value={i}>Semaine {wk}</option>)}
+                  </select>
                 </div>
                 <div className="flex-1">
-                  <label className="block text-xs font-semibold text-slate-600 mb-1">Fin (S.X)</label>
-                  <input type="number" min="1" max="52" required value={selectedSA.endWeekIdx + 1} onChange={e => setSelectedSA({...selectedSA, endWeekIdx: parseInt(e.target.value) - 1})} className="form-input w-full text-sm rounded-md border-slate-300" />
+                  <label className="block text-xs font-semibold text-slate-600 mb-1">Fin (Sem. calendaire)</label>
+                  <select required value={selectedSA.endWeekIdx} onChange={e => setSelectedSA({...selectedSA, endWeekIdx: parseInt(e.target.value)})} className="form-select w-full text-sm rounded-md border-slate-300">
+                    {weekNumbers.map((wk, i) => <option key={i} value={i}>Semaine {wk}</option>)}
+                  </select>
                 </div>
               </div>
               <div>
@@ -798,11 +806,15 @@ const [editingActivityId, setEditingActivityId] = useState<string | null>(null);
               <div className="flex gap-4">
                 <div className="flex-1">
                   <label className="block text-xs font-semibold text-slate-600 mb-1">Semaine de début</label>
-                  <input type="number" min="1" max={totalWks} value={printStartWk} onChange={e => setPrintStartWk(parseInt(e.target.value) || 1)} className="form-input w-full text-sm rounded-md border-slate-300" />
+                  <select value={printStartWk} onChange={e => setPrintStartWk(parseInt(e.target.value))} className="form-select w-full text-sm rounded-md border-slate-300">
+                    {weekNumbers.map((wk, i) => <option key={i} value={i + 1}>Semaine {wk}</option>)}
+                  </select>
                 </div>
                 <div className="flex-1">
                   <label className="block text-xs font-semibold text-slate-600 mb-1">Semaine de fin</label>
-                  <input type="number" min="1" max={totalWks} value={printEndWk} onChange={e => setPrintEndWk(parseInt(e.target.value) || totalWks)} className="form-input w-full text-sm rounded-md border-slate-300" />
+                  <select value={printEndWk} onChange={e => setPrintEndWk(parseInt(e.target.value))} className="form-select w-full text-sm rounded-md border-slate-300">
+                    {weekNumbers.map((wk, i) => <option key={i} value={i + 1}>Semaine {wk}</option>)}
+                  </select>
                 </div>
               </div>
             </div>

@@ -89,7 +89,7 @@ export default function Schedule() {
     const isHoli = hStartWeeks.includes(currentCalendarWeek);
 
     const checkIfAbsent = (cId: string) => {
-      if (absences.some(a => a.classId === cId && currentCalendarWeek >= a.startWeek && currentCalendarWeek <= a.endWeek)) return true;
+      if (absences.some(a => a.classId === cId && (getWeekNumbers(a.startWeek, a.endWeek).includes(currentCalendarWeek)))) return true;
       const cls = classes.find(c => c.id === cId);
       if (cls?.internships && currentInternalWeek > 0) {
         if (cls.internships.some(i => currentInternalWeek >= i.startWeek && currentInternalWeek <= i.endWeek)) return true;
@@ -155,7 +155,7 @@ export default function Schedule() {
     };
 
     const checkIfAbsent = (cId: string, internalWk: number, calWk: number) => {
-      if (absences.some(a => a.classId === cId && calWk >= a.startWeek && calWk <= a.endWeek)) return true;
+      if (absences.some(a => a.classId === cId && (getWeekNumbers(a.startWeek, a.endWeek).includes(calWk)))) return true;
       const cls = classes.find(c => c.id === cId);
       if (cls?.internships) {
         if (cls.internships.some(i => internalWk >= i.startWeek && internalWk <= i.endWeek)) return true;
@@ -841,12 +841,16 @@ export default function Schedule() {
                             </div>
                             <div className="flex gap-3">
                                <div className="flex-1">
-                                 <label className="block text-xs font-semibold text-slate-600 mb-1">Début (Sem.)</label>
-                                 <input type="number" min="1" max="52" value={newSA.startWeek} onChange={e => setNewSA({...newSA, startWeek: parseInt(e.target.value) || 1})} className="form-input w-full text-sm rounded-md border-slate-300" />
+                                 <label className="block text-xs font-semibold text-slate-600 mb-1">Début (Sem. calendaire)</label>
+                                 <select value={newSA.startWeek} onChange={e => setNewSA({...newSA, startWeek: parseInt(e.target.value)})} className="form-select w-full text-sm rounded-md border-slate-300">
+                                   {weekNumbers.map((wk, i) => <option key={i} value={i + 1}>Semaine {wk}</option>)}
+                                 </select>
                                </div>
                                <div className="flex-1">
-                                 <label className="block text-xs font-semibold text-slate-600 mb-1">Fin (Sem.)</label>
-                                 <input type="number" min="1" max="52" value={newSA.endWeek} onChange={e => setNewSA({...newSA, endWeek: parseInt(e.target.value) || 1})} className="form-input w-full text-sm rounded-md border-slate-300" />
+                                 <label className="block text-xs font-semibold text-slate-600 mb-1">Fin (Sem. calendaire)</label>
+                                 <select value={newSA.endWeek} onChange={e => setNewSA({...newSA, endWeek: parseInt(e.target.value)})} className="form-select w-full text-sm rounded-md border-slate-300">
+                                   {weekNumbers.map((wk, i) => <option key={i} value={i + 1}>Semaine {wk}</option>)}
+                                 </select>
                                </div>
                             </div>
                             <div className="flex gap-2 justify-end pt-1">
@@ -863,7 +867,7 @@ export default function Schedule() {
                                  <div key={sa.id} className="flex items-center justify-between bg-white border border-slate-200 shadow-sm rounded-md p-2.5 text-xs group">
                                     <div className="flex flex-col">
                                       <span className="font-bold text-slate-800">{act?.name || 'Activité inconnue'}</span> 
-                                      <span className="text-slate-500 font-medium mt-0.5">Semaine {sa.startWeek} à {sa.endWeek}</span>
+                                      <span className="text-slate-500 font-medium mt-0.5">Semaine {weekNumbers[sa.startWeek - 1]} à {weekNumbers[sa.endWeek - 1]}</span>
                                     </div>
                                     <button type="button" onClick={() => handleDeleteSA(sa.id)} className="p-1.5 text-slate-400 hover:text-red-600 hover:bg-red-50 rounded transition-colors" title="Supprimer">
                                       <Trash2 className="w-3.5 h-3.5"/>
