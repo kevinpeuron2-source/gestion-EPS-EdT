@@ -57,6 +57,7 @@ const [editingActivityId, setEditingActivityId] = useState<string | null>(null);
   const [printEndWk, setPrintEndWk] = useState<number>(52);
   const [isPrintingRange, setIsPrintingRange] = useState(false);
   const [printFit, setPrintFit] = useState<'contain' | 'width' | 'height'>('contain');
+  const [groupBy, setGroupBy] = useState<'class' | 'slot'>('class');
 
   const executePrintRange = () => {
      setShowPrintModal(false);
@@ -211,6 +212,37 @@ const [editingActivityId, setEditingActivityId] = useState<string | null>(null);
 
   const weekNumbers = React.useMemo(() => getWeekNumbers(startW, endW), [startW, endW]);
   const totalWks = weekNumbers.length;
+
+  
+  const groupedRows = React.useMemo(() => {
+    const allRows = classes.flatMap(c => {
+      const classCourses = courses.filter(crs => crs.classId === c.id && !crs.isUnavailability && !crs.activityId);
+      return classCourses.map(course => ({ c, course }));
+    }).filter(row => {
+      return scheduledActivities.some(sa => sa.courseId === row.course.id);
+    });
+
+    if (groupBy === 'slot') {
+      const dayOrder: Record<string, number> = { Lundi: 1, Mardi: 2, Mercredi: 3, Jeudi: 4, Vendredi: 5, Samedi: 6, Dimanche: 7 };
+      allRows.sort((a, b) => {
+        const dayA = dayOrder[a.course.dayOfWeek] || 99;
+        const dayB = dayOrder[b.course.dayOfWeek] || 99;
+        if (dayA !== dayB) return dayA - dayB;
+        if (a.course.startTime !== b.course.startTime) return a.course.startTime.localeCompare(b.course.startTime);
+        return a.c.name.localeCompare(b.c.name);
+      });
+    } else {
+      const dayOrder: Record<string, number> = { Lundi: 1, Mardi: 2, Mercredi: 3, Jeudi: 4, Vendredi: 5, Samedi: 6, Dimanche: 7 };
+      allRows.sort((a, b) => {
+        if (a.c.name !== b.c.name) return a.c.name.localeCompare(b.c.name);
+        const dayA = dayOrder[a.course.dayOfWeek] || 99;
+        const dayB = dayOrder?.[b.course.dayOfWeek] || 99;
+        if (dayA !== dayB) return dayA - dayB;
+        return a.course.startTime.localeCompare(b.course.startTime);
+      });
+    }
+    return allRows;
+  }, [classes, courses, scheduledActivities, groupBy]);
 
   const actualPrintStartIdx = Math.max(0, printStartWk - 1);
   const actualPrintEndIdx = Math.min(totalWks, printEndWk);
@@ -549,10 +581,29 @@ const [editingActivityId, setEditingActivityId] = useState<string | null>(null);
         )}
 
         {scheduledActivities.length > 0 ? (
+        <>
+
+        <div className="flex justify-between items-center mb-4 print:hidden">
+          <div className="bg-slate-100 p-1 rounded-lg inline-flex">
+            <button 
+              onClick={() => setGroupBy('class')}
+              className={`px-3 py-1.5 text-xs font-medium rounded-md transition-colors ${groupBy === 'class' ? 'bg-white text-slate-800 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}
+            >
+              Vue par Classe
+            </button>
+            <button 
+              onClick={() => setGroupBy('slot')}
+              className={`px-3 py-1.5 text-xs font-medium rounded-md transition-colors ${groupBy === 'slot' ? 'bg-white text-slate-800 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}
+            >
+              Vue par Créneau
+            </button>
+          </div>
+        </div>
+
           <div className="overflow-x-auto pb-4 print:overflow-visible">
             <div className="min-w-[800px] print:w-full print:min-w-full">
               <div className="flex border-b border-slate-200 pb-2 mb-2">
-                <div className="w-32 print:w-24 shrink-0 font-semibold text-xs text-slate-500 uppercase flex items-center">Classe</div>
+                <div className="w-32 print:w-24 shrink-0 font-semibold text-xs text-slate-500 uppercase flex items-center">{groupBy === 'slot' ? 'Créneau' : 'Classe'}</div>
                 <div className="flex-1 flex relative">
                   {displayedWeekNumbers.map((calendarWeek, i) => {
                     const actualWkIndex = i + 1 + offsetWks;
@@ -567,13 +618,8 @@ const [editingActivityId, setEditingActivityId] = useState<string | null>(null);
               </div>
               
               <div className={isPrintingRange && (printFit === 'contain' || printFit === 'height') ? "flex flex-col h-[155mm] gap-1" : "space-y-3"}>
-                {classes.flatMap(c => {
-                  const classCourses = courses.filter(crs => crs.classId === c.id && !crs.isUnavailability && !crs.activityId);
-                  if (classCourses.length === 0) return [];
-                  
-                  return classCourses.map(course => {
+                {groupedRows.map(({ c, course }) => {
                     const mySAs = scheduledActivities.filter(sa => sa.courseId === course.id);
-                    if (mySAs.length === 0) return null;
                     
                     return (
                       <div key={course.id} className={`flex items-center ${isPrintingRange && (printFit === 'contain' || printFit === 'height') ? 'flex-1 min-h-0' : 'min-h-[32px]'}`}>
@@ -581,8 +627,8 @@ const [editingActivityId, setEditingActivityId] = useState<string | null>(null);
                            <div className="flex items-center gap-2">
                              <div className="w-2 h-2 rounded-full shrink-0" style={{ backgroundColor: c.color }} />
                              <span className="print:text-xs truncate flex flex-col leading-tight">
-                               <span>{c.name}</span>
-                               <span className="text-[9px] text-slate-500 font-normal">{course.dayOfWeek.substring(0,3)} {course.startTime}</span>
+                               <span>{groupBy === 'slot' ? `${course.dayOfWeek.substring(0,3)} ${course.startTime}` : c.name}</span>
+                               <span className="text-[9px] text-slate-500 font-normal">{groupBy === 'slot' ? c.name : `${course.dayOfWeek.substring(0,3)} ${course.startTime}`}</span>
                              </span>
                            </div>
                         </div>
@@ -715,11 +761,11 @@ const [editingActivityId, setEditingActivityId] = useState<string | null>(null);
                       </div>
                     </div>
                   );
-                  });
                 })}
               </div>
             </div>
           </div>
+          </>
         ) : (
           <div className="py-12 border-2 border-dashed border-slate-200 rounded-lg flex flex-col items-center justify-center text-slate-400">
             <CalendarDays className="w-10 h-10 mb-3 opacity-20" />
