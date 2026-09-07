@@ -117,146 +117,21 @@ function WeeklyView({ selectedTeacher, currentDate, setCurrentDate }: any) {
   };
 
   const getActiveActivity = (course: Course, calWk: number) => {
-    const period = scheduledActivities.find(sa => {
-      if (sa.courseId && sa.courseId === course.id) {
-         let pStart = sa.startWeek;
-         let pEnd = sa.endWeek;
-         // convert relative to absolute weeks
-         const wks = getWeekNumbers(settings?.startWeek || 36, settings?.endWeek || 27);
-         const s = wks[pStart - 1];
-         const e = wks[pEnd - 1];
-         // simplistic check (in reality we need to check if calWk is within the array slice)
-         const idxStart = pStart - 1;
-         const idxEnd = pEnd - 1;
-         const currentIdx = wks.indexOf(calWk);
-         return currentIdx >= idxStart && currentIdx <= idxEnd;
-      }
-      return false;
-    });
-    if (!period) return null;
-    return activities.find(a => a.id === period.activityId);
-  };
-
-  const checkIfAbsent = (cId: string, calWk: number) => {
-    return absences.some(a => {
-      if (a.classId !== cId) return false;
-      const aStart = getWeekNumbers(a.startWeek, a.endWeek);
-      return aStart.includes(calWk);
-    });
-  };
-
-  return (
-    <div className="bg-white rounded-xl shadow-sm border border-slate-200 h-full flex flex-col overflow-hidden animate-in fade-in duration-300">
-      <div className="px-6 py-4 border-b border-slate-100 flex items-center justify-between bg-slate-50">
-        <div className="flex items-center gap-2">
-          <button onClick={() => setCurrentDate(subWeeks(currentDate, 1))} className="p-2 hover:bg-slate-200 rounded-full transition-colors"><ChevronLeft className="w-5 h-5"/></button>
-          <button onClick={() => setCurrentDate(addWeeks(currentDate, 1))} className="p-2 hover:bg-slate-200 rounded-full transition-colors"><ChevronRight className="w-5 h-5"/></button>
-          <span className="font-bold text-lg text-slate-800 ml-2 capitalize">
-            Semaine {currentWeek} - {format(startDate, 'MMMM yyyy', { locale: fr })}
-          </span>
-          {true && <span className="ml-2 px-2 py-1 bg-amber-100 text-amber-800 text-xs font-bold rounded">Semaine {weekType}</span>}
-        </div>
-        <button onClick={() => setCurrentDate(new Date())} className="text-sm font-medium text-blue-600 hover:bg-blue-50 px-3 py-1.5 rounded-lg transition-colors">Aujourd'hui</button>
-      </div>
-      <div className="flex-1 overflow-y-auto p-4 flex">
-        <div className="w-16 flex-shrink-0 flex flex-col">
-          <div className="h-[64px]"></div>
-          {Array.from({ length: TIME_END - TIME_START }).map((_, i) => (
-            <div key={i} className="flex-1 text-xs text-slate-400 font-medium text-right pr-4 -mt-2 relative" style={{ height: 60 * PX_PER_MINUTE }}>
-              {TIME_START + i}:00
-            </div>
-          ))}
-        </div>
-        <div className="flex-1 flex min-w-[800px]">
-          {teacherIds.map(tId => {
-            const t = teachers.find(x => x.id === tId);
-            const tCourses = filteredCourses.filter(c => c.teacherId === tId && isCourseActiveThisWeek(c));
-            return (
-              <div key={tId} className="flex-1 border-l border-slate-200 flex flex-col">
-                <div className="h-[64px] border-b border-slate-200 flex items-center justify-center font-bold text-sm text-slate-700 bg-slate-50 sticky top-0 z-10 shadow-sm">
-                  {t?.name}
-                </div>
-                <div className="flex-1 flex relative">
-                  {DAYS.map((day, dIdx) => {
-                    const dayCourses = tCourses.filter(c => c.dayOfWeek === day);
-                    return (
-                      <div key={day} className="flex-1 border-r border-slate-100 relative min-h-[600px]" style={{ height: (TIME_END - TIME_START) * 60 * PX_PER_MINUTE }}>
-                        <div className="absolute top-0 inset-x-0 h-6 bg-slate-50/50 border-b border-slate-100 text-[10px] font-bold text-center text-slate-500 uppercase flex items-center justify-center">
-                          {day.slice(0, 3)}
-                        </div>
-                        {dayCourses.map(course => {
-                          const startMins = timeToMinutes(course.startTime) - TIME_START * 60;
-                          const dur = timeToMinutes(course.endTime) - timeToMinutes(course.startTime);
-                          const totalMins = (TIME_END - TIME_START) * 60;
-                          const tClass = classes.find(c => c.id === course.classId);
-                          const act = getActiveActivity(course, currentWeek);
-                          const fac = facilities.find(f => f.id === (act ? act.facilityId : course.facilityId));
-                          const isAbsent = tClass ? checkIfAbsent(tClass.id, currentWeek) : false;
-
-                          return (
-                            <div key={course.id} className="absolute left-1 right-1 rounded border p-1.5 overflow-hidden shadow-sm" style={{
-                              top: `calc(${(startMins / totalMins) * 100}% + 24px)`,
-                              height: `calc(${(dur / totalMins) * 100}% - 4px)`,
-                              backgroundColor: course.isUnavailability ? '#f1f5f9' : (fac?.color || tClass?.color || '#e2e8f0'),
-                              borderColor: course.isUnavailability ? '#cbd5e1' : 'rgba(0,0,0,0.1)',
-                            }}>
-                              <div className="text-[9px] font-mono leading-none text-slate-700 mb-1">{course.startTime}-{course.endTime}</div>
-                              {course.isUnavailability ? (
-                                <div className="text-[10px] font-bold uppercase text-slate-600">{course.reason || 'Indispo'}</div>
-                              ) : isAbsent ? (
-                                <div className="text-[10px] font-bold uppercase text-red-600 bg-red-100 px-1 py-0.5 rounded inline-block">Absent</div>
-                              ) : (
-                                <>
-                                  <div className="font-bold text-xs leading-tight text-slate-800">{tClass?.name}</div>
-                                  {act && <div className="text-[10px] font-bold text-slate-900 mt-0.5">{act.name}</div>}
-                                  {fac && <div className="text-[9px] font-medium text-slate-700 mt-0.5 bg-white/50 px-1 rounded inline-block truncate max-w-full">{fac.name}</div>}
-                                </>
-                              )}
-                            </div>
-                          );
-                        })}
-                      </div>
-                    )
-                  })}
-                </div>
-              </div>
-            )
-          })}
-        </div>
-      </div>
-    </div>
-  );
-}
-
-// ---------------------------------------------------------
-// MONTHLY VIEW
-// ---------------------------------------------------------
-function MonthlyView({ selectedTeacher, currentDate, setCurrentDate }: any) {
-  const { teachers, classes, facilities, courses, activities, scheduledActivities, absences, settings } = useStore();
-
-  const start = startOfWeek(startOfMonth(currentDate), { weekStartsOn: 1 });
-  const end = endOfWeek(endOfMonth(currentDate), { weekStartsOn: 1 });
-  const days = eachDayOfInterval({ start, end });
-
-  const filteredCourses = useMemo(() => {
-    return courses.filter(c => (selectedTeacher === 'all' || c.teacherId === selectedTeacher) && !c.isUnavailability);
-  }, [courses, selectedTeacher]);
-
-  const getActiveActivity = (course: Course, calWk: number) => {
-    const period = scheduledActivities.find(sa => {
-      if (sa.courseId && sa.courseId === course.id) {
-         let pStart = sa.startWeek;
-         let pEnd = sa.endWeek;
-         const wks = getWeekNumbers(settings?.startWeek || 36, settings?.endWeek || 27);
-         const idxStart = pStart - 1;
-         const idxEnd = pEnd - 1;
-         const currentIdx = wks.indexOf(calWk);
-         return currentIdx >= idxStart && currentIdx <= idxEnd;
-      }
-      return false;
-    });
-    if (!period) return null;
-    return activities.find(a => a.id === period.activityId);
+    const wks = getWeekNumbers(settings?.startWeek || 36, settings?.endWeek || 27);
+    const internalWeek = wks.indexOf(calWk) + 1;
+    
+    let resolvedActId = course.activityId;
+    
+    if (internalWeek > 0) {
+      const sa = scheduledActivities.find(sa => 
+        (sa.classId === course.classId || sa.courseId === course.id) && 
+        internalWeek >= sa.startWeek && internalWeek <= sa.endWeek
+      );
+      if (sa && !resolvedActId) resolvedActId = sa.activityId;
+    }
+    
+    if (!resolvedActId) return null;
+    return activities.find(a => a.id === resolvedActId);
   };
 
   return (
@@ -392,8 +267,10 @@ function YearlyView({ selectedTeacher }: any) {
               </div>
             </div>
             
+            
             {groupedRows.map((row, idx) => {
-              const rowSAs = scheduledActivities.filter(sa => sa.courseId === row.course.id);
+              const rowSAs = scheduledActivities.filter(sa => sa.classId === row.c.id || sa.courseId === row.course.id);
+
               return (
                 <div key={idx} className="flex border-b border-slate-200 hover:bg-slate-50 transition-colors">
                   <div className="w-56 shrink-0 border-r-2 border-slate-800 p-2 bg-white sticky left-0 z-10 shadow-[2px_0_5px_-2px_rgba(0,0,0,0.1)] flex flex-col justify-center">
