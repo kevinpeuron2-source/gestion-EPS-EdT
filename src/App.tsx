@@ -1,27 +1,32 @@
-/**
- * @license
- * SPDX-License-Identifier: Apache-2.0
- */
-
-import React, { useEffect, useState } from "react";
-import { BrowserRouter, Routes, Route, Navigate, Link, useLocation } from "react-router-dom";
-import { Calendar, Map, CheckSquare, Settings as SettingsIcon, LogOut } from "lucide-react";
+import React, { useState } from "react";
+import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
 import { clsx, type ClassValue } from "clsx";
 import { twMerge } from "tailwind-merge";
 
-// Pages placeholder
 import Layout from "./components/Layout";
 import Schedule from "./pages/Schedule";
 import Activities from "./pages/Activities";
 import Settings from "./pages/Settings";
 import AnnualPlanning from "./pages/AnnualPlanning";
 import Import from "./pages/Import";
+import ShareCalendar from "./pages/ShareCalendar";
 
 export function cn(...inputs: ClassValue[]) {
   return twMerge(clsx(inputs));
 }
 
 export default function App() {
+  return (
+    <BrowserRouter>
+      <Routes>
+        <Route path="/share" element={<ShareCalendar />} />
+        <Route path="/*" element={<ProtectedRoutes />} />
+      </Routes>
+    </BrowserRouter>
+  );
+}
+
+function ProtectedRoutes() {
   const [isAuthenticated, setIsAuthenticated] = useState<boolean>(() => {
     return localStorage.getItem("eps_auth") === "RP26";
   });
@@ -76,17 +81,15 @@ export default function App() {
   }
 
   return (
-    <BrowserRouter>
-      <Routes>
-        <Route path="/" element={<Layout onLogout={handleLogout} />}>
-          <Route index element={<Navigate to="/schedule" replace />} />
-          <Route path="schedule" element={<Schedule />} />
-          <Route path="activities" element={<Activities />} />
-          <Route path="annual" element={<AnnualPlanning />} />
-          <Route path="import" element={<Import />} />
-          <Route path="settings" element={<Settings />} />
-        </Route>
-      </Routes>
-    </BrowserRouter>
+    <Routes>
+      <Route path="/" element={<Layout onLogout={handleLogout} />}>
+        <Route index element={<Navigate to="/schedule" replace />} />
+        <Route path="schedule" element={<Schedule />} />
+        <Route path="activities" element={<Activities />} />
+        <Route path="annual" element={<AnnualPlanning />} />
+        <Route path="import" element={<Import />} />
+        <Route path="settings" element={<Settings />} />
+      </Route>
+    </Routes>
   );
 }
