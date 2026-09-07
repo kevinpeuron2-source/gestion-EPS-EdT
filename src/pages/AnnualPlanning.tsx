@@ -84,6 +84,7 @@ const [editingActivityId, setEditingActivityId] = useState<string | null>(null);
     try {
       if (selectedSA.id) {
         await updateDoc(doc(db, "scheduledActivities", selectedSA.id), {
+          activityId: selectedSA.activityId,
           startWeek: selectedSA.startWeekIdx + 1,
           endWeek: selectedSA.endWeekIdx + 1,
           isLocked: selectedSA.isLocked
@@ -710,8 +711,7 @@ const [editingActivityId, setEditingActivityId] = useState<string | null>(null);
               <h3 className="font-bold text-slate-800">{selectedSA.id ? "Modifier l'activité" : "Ajouter une activité"}</h3>
             </div>
             <form onSubmit={handleSASubmit} className="p-6 space-y-4">
-              {!selectedSA.id && (
-                <div>
+              <div>
                   <label className="block text-xs font-semibold text-slate-600 mb-1">Activité</label>
                   <select required value={selectedSA.activityId || ""} onChange={e => {
                       const newActId = e.target.value;
@@ -719,7 +719,10 @@ const [editingActivityId, setEditingActivityId] = useState<string | null>(null);
                       setSelectedSA({
                         ...selectedSA, 
                         activityId: newActId,
-                        endWeekIdx: act ? Math.min(totalWks - 1, selectedSA.startWeekIdx + act.durationWeeks - 1) : selectedSA.endWeekIdx
+                        // Update the end week if the activity changed and we know the new duration
+                        // Alternatively, we could keep the same period, but usually when you switch, 
+                        // you might want to keep the current period boundaries or apply the new activity duration.
+                        // Let's just update the activityId and keep the current period boundaries to answer the user's specific request.
                       });
                     }} className="form-select w-full text-sm rounded-md border-slate-300">
                     <option value="">-- Choisir une activité --</option>
@@ -728,7 +731,6 @@ const [editingActivityId, setEditingActivityId] = useState<string | null>(null);
                     ))}
                   </select>
                 </div>
-              )}
 
               <div className="flex gap-4">
                 <div className="flex-1">
@@ -751,6 +753,16 @@ const [editingActivityId, setEditingActivityId] = useState<string | null>(null);
                 </label>
               </div>
               <div className="flex gap-2 pt-4 border-t border-slate-100">
+                {selectedSA.id && (
+                  <button type="button" onClick={async () => {
+                    if (window.confirm("Supprimer cette activité du planning ?")) {
+                      await deleteDoc(doc(db, "scheduledActivities", selectedSA.id));
+                      setSelectedSA(null);
+                    }
+                  }} className="py-2 px-3 bg-red-50 hover:bg-red-100 text-red-600 rounded-lg transition-colors" title="Supprimer">
+                    <Trash2 className="w-4 h-4" />
+                  </button>
+                )}
                 <button type="button" onClick={() => setSelectedSA(null)} className="flex-1 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-lg text-sm font-medium transition-colors">Annuler</button>
                 <button type="submit" className="flex-1 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-sm font-medium transition-colors">Enregistrer</button>
               </div>
@@ -801,165 +813,7 @@ const [editingActivityId, setEditingActivityId] = useState<string | null>(null);
         </div>
       )}
 
-      {showSettingsModal && (
-        <div className="fixed inset-0 bg-slate-900/40 backdrop-blur-sm flex items-center justify-center z-50 p-4 shrink-0">
-          <div className="bg-white rounded-xl shadow-xl w-full max-w-4xl max-h-[90vh] overflow-hidden border border-slate-200 flex flex-col">
-            <div className="px-6 py-4 border-b border-slate-100 bg-slate-50 flex justify-between items-center">
-              <h3 className="font-bold text-slate-800 flex items-center gap-2">
-                <SettingsIcon className="w-5 h-5 text-blue-600" /> Paramétrage des Lieux & Activités
-              </h3>
-              <button onClick={() => setShowSettingsModal(false)} className="text-slate-400 hover:text-slate-600 transition-colors font-bold text-xl leading-none">&times;</button>
-            </div>
-            
-            <div className="flex border-b border-slate-200 px-6 pt-2 bg-slate-50/50">
-              <button onClick={() => setActiveTab('activities')} className={`px-4 py-2 text-sm font-medium border-b-2 transition-colors ${activeTab === 'activities' ? 'border-blue-600 text-blue-600' : 'border-transparent text-slate-500 hover:text-slate-700'}`}>Activités & Cycles</button>
-              <button onClick={() => setActiveTab('facilities')} className={`px-4 py-2 text-sm font-medium border-b-2 transition-colors ${activeTab === 'facilities' ? 'border-blue-600 text-blue-600' : 'border-transparent text-slate-500 hover:text-slate-700'}`}>Lieux de pratique</button>
-            </div>
-
-            <div className="flex-1 overflow-auto p-6 bg-slate-50/30">
-              {activeTab === 'activities' && (
-                <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
-                  {/* Activities List */}
-                  <div>
-                    <h4 className="text-sm font-bold text-slate-700 uppercase mb-4 flex items-center gap-2"><ActivityIcon className="w-4 h-4"/> Activités Existantes</h4>
-                    <ul className="space-y-2">
-                      {activities.map(a => {
-                        const fac = facilities.find(f => f.id === a.facilityId);
-                        const clsNames = a.classIds.map(id => classes.find(c => c.id === id)?.name).filter(Boolean).join(", ");
-                        return (
-                          <li key={a.id} className="flex items-center justify-between p-3 bg-white rounded-lg border border-slate-200 shadow-sm group">
-                            <div className="pr-4">
-                              <span className="text-sm font-bold text-slate-800">{a.name}</span> {a.champ && <span className="text-[10px] font-bold text-indigo-600 bg-indigo-50 px-1.5 py-0.5 rounded ml-1">CA{a.champ}</span>} <span className="text-xs font-medium text-blue-600 bg-blue-50 px-1.5 py-0.5 rounded ml-1">{a.durationWeeks} sem.</span>
-                              <div className="text-[11px] text-slate-500 mt-2 space-y-1">
-                                <div className="flex items-center gap-1.5"><MapPin className="w-3 h-3 text-slate-400"/> <span className="font-medium text-slate-600">Lieu:</span> {fac?.name || '?'} (Cap. {a.maxCapacity || fac?.capacity || 1})</div>
-                                {a.preferredStartWeek && a.preferredEndWeek && <div className="flex items-center gap-1.5"><CalendarDays className="w-3 h-3 text-slate-400"/> <span className="font-medium text-slate-600">Période:</span> S{a.preferredStartWeek}-S{a.preferredEndWeek} {a.isMandatoryPeriod && <span className="text-red-600 font-bold ml-1 text-[9px] uppercase bg-red-50 px-1 py-0.5 rounded">Imposée</span>}</div>}
-                                {a.groupCycles && <div className="text-blue-600 font-semibold text-[9px] uppercase bg-blue-50 px-1.5 py-0.5 rounded inline-block mt-0.5">Mise en place importante (Groupé)</div>}
-                                <div className="leading-tight pt-1"><span className="font-medium text-slate-600">Classes:</span> <span className="text-slate-500">{clsNames || 'Aucune'}</span></div>
-                              </div>
-                            </div>
-                            <div className="flex flex-col gap-2 opacity-0 group-hover:opacity-100 transition-opacity shrink-0">
-                              <button onClick={() => editActivity(a)} className="text-blue-600 hover:text-blue-800 bg-blue-50 hover:bg-blue-100 p-1.5 rounded transition-colors" title="Éditer">
-                                <SettingsIcon className="w-4 h-4" />
-                              </button>
-                              <button onClick={() => deleteActivity(a.id)} className="text-red-500 hover:text-red-700 bg-red-50 hover:bg-red-100 p-1.5 rounded transition-colors" title="Supprimer">
-                                <Trash2 className="w-4 h-4" />
-                              </button>
-                            </div>
-                          </li>
-                        );
-                      })}
-                      {activities.length === 0 && <p className="text-sm text-slate-400 italic bg-white p-4 rounded border border-slate-200 border-dashed text-center">Aucune activité définie.</p>}
-                    </ul>
-                  </div>
-
-                  {/* Activity Form */}
-                  <div>
-                    <h4 className="text-sm font-bold text-slate-700 uppercase mb-4 flex items-center gap-2"><Plus className="w-4 h-4"/> {editingActivityId ? "Éditer l'activité" : "Nouvelle Activité"}</h4>
-                    <form onSubmit={addActivity} className="space-y-4 bg-white p-5 rounded-lg border border-slate-200 shadow-sm">
-                      <div>
-                        <label className="block text-xs font-semibold text-slate-600 mb-1">Nom de l'activité</label>
-                        <input value={newActivityName} onChange={e=>setNewActivityName(e.target.value)} placeholder="ex: Basket, Natation..." className="form-input w-full text-sm rounded-md border-slate-300" required />
-                      </div>
-                      
-                      <div className="flex gap-4">
-                        <div className="flex-1">
-                          <label className="block text-xs font-semibold text-slate-600 mb-1">Champ d'apprentissage (CA)</label>
-                          <select value={newActivityChamp} onChange={e=>setNewActivityChamp(e.target.value ? parseInt(e.target.value) : '')} className="form-select w-full text-sm rounded-md border-slate-300 bg-white">
-                            <option value="">-- Optionnel --</option>
-                            <option value="1">Champ 1 (CA1)</option>
-                            <option value="2">Champ 2 (CA2)</option>
-                            <option value="3">Champ 3 (CA3)</option>
-                            <option value="4">Champ 4 (CA4)</option>
-                            <option value="5">Champ 5 (CA5)</option>
-                          </select>
-                        </div>
-                      </div>
-
-                      <div className="flex gap-4">
-                        <div className="flex-1">
-                          <label className="block text-xs font-semibold text-slate-600 mb-1">Durée (sem.)</label>
-                          <input type="number" min="1" max="52" value={newActivityDuration} onChange={e=>setNewActivityDuration(parseInt(e.target.value))} className="form-input w-full text-sm rounded-md border-slate-300" required />
-                        </div>
-                        <div className="flex-1">
-                          <label className="block text-xs font-semibold text-slate-600 mb-1" title="Nombre de classes en simultané pour cette activité">Capacité simul.</label>
-                          <input type="number" min="1" value={newActivityMaxCapacity} onChange={e=>setNewActivityMaxCapacity(parseInt(e.target.value))} className="form-input w-full text-sm rounded-md border-slate-300" required />
-                        </div>
-                      </div>
-                      <div>
-                        <label className="block text-xs font-semibold text-slate-600 mb-1">Lieu de pratique (Installation)</label>
-                        <select value={newActivityFacility} onChange={e=>setNewActivityFacility(e.target.value)} className="form-select w-full text-sm rounded-md border-slate-300 bg-white" required>
-                          <option value="">-- Choisir --</option>
-                          {facilities.map(f => <option key={f.id} value={f.id}>{f.name}</option>)}
-                        </select>
-                      </div>
-                      <div className="pt-3 border-t border-slate-100">
-                        <label className="block text-xs font-semibold text-slate-600 mb-2">Période souhaitée (Optionnel)</label>
-                        <div className="flex items-center gap-3">
-                          <input type="number" min="1" max="52" value={newActivityPrefStart} onChange={e=>setNewActivityPrefStart(e.target.value ? parseInt(e.target.value) : '')} placeholder="De S. (ex: 1)" className="form-input flex-1 text-sm rounded-md border-slate-300" />
-                          <span className="text-sm text-slate-400 font-medium">à</span>
-                          <input type="number" min="1" max="52" value={newActivityPrefEnd} onChange={e=>setNewActivityPrefEnd(e.target.value ? parseInt(e.target.value) : '')} placeholder="À S. (ex: 12)" className="form-input flex-1 text-sm rounded-md border-slate-300" />
-                        </div>
-                      </div>
-                      <div className="flex flex-col gap-2 pt-2">
-                        <label className="flex items-center gap-2 text-[11px] font-medium text-slate-700 cursor-pointer bg-slate-50 p-2 rounded border border-slate-100">
-                          <input type="checkbox" checked={newActivityGroup} onChange={e => setNewActivityGroup(e.target.checked)} className="rounded text-blue-600 focus:ring-blue-500" />
-                          Regrouper idéalement les cycles (mise en place du matériel importante)
-                        </label>
-                        <label className="flex items-center gap-2 text-[11px] font-medium text-slate-700 cursor-pointer bg-slate-50 p-2 rounded border border-slate-100">
-                          <input type="checkbox" checked={newActivityMandatory} onChange={e => setNewActivityMandatory(e.target.checked)} className="rounded text-red-600 focus:ring-red-500" />
-                          <span className="text-red-700">Bloquer OBLIGATOIREMENT sur cette période (ex: Natation)</span>
-                        </label>
-                      </div>
-                      
-                      <div className="flex gap-2 pt-4">
-                        {editingActivityId && (
-                          <button type="button" onClick={resetForm} className="flex-1 py-2.5 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-lg text-sm font-bold transition-colors">
-                            Annuler
-                          </button>
-                        )}
-                        <button type="submit" className="flex-[2] bg-blue-600 text-white font-bold py-2.5 rounded-lg text-sm hover:bg-blue-700 flex justify-center items-center gap-2 shadow-sm transition-colors">
-                          {editingActivityId ? "Mettre à jour l'activité" : "Créer l'activité"}
-                        </button>
-                      </div>
-                    </form>
-                  </div>
-                </div>
-              )}
-
-              {activeTab === 'facilities' && (
-                <div className="max-w-2xl mx-auto">
-                  <form onSubmit={addFacility} className="bg-white p-5 rounded-lg border border-slate-200 shadow-sm flex items-end gap-4 mb-8">
-                     <div className="flex-1">
-                       <label className="block text-xs font-semibold text-slate-600 mb-1">Nom du lieu</label>
-                       <input value={newFacilityName} onChange={e=>setNewFacilityName(e.target.value)} placeholder="ex: Gymnase municipal, Forêt..." className="form-input w-full text-sm rounded-md border-slate-300" required />
-                     </div>
-                     <div>
-                       <label className="block text-xs font-semibold text-slate-600 mb-1">Couleur</label>
-                       <input type="color" value={newFacilityColor} onChange={e=>setNewFacilityColor(e.target.value)} className="h-9 w-12 rounded cursor-pointer border border-slate-300" />
-                     </div>
-                     <button type="submit" className="bg-slate-800 text-white px-6 py-2 rounded-md font-medium text-sm hover:bg-slate-900 transition-colors h-10">Ajouter</button>
-                  </form>
-
-                  <div className="space-y-3">
-                     {facilities.map(f => (
-                       <div key={f.id} className="flex items-center justify-between p-4 bg-white rounded-lg border border-slate-200 shadow-sm">
-                         <div className="flex items-center gap-3">
-                           <div className="w-4 h-4 rounded-full shadow-sm border border-black/10" style={{backgroundColor: f.color}}></div>
-                           <span className="font-bold text-slate-700">{f.name}</span>
-                         </div>
-                         <button onClick={() => deleteFacility(f.id)} className="text-red-500 hover:text-red-700 bg-red-50 hover:bg-red-100 p-2 rounded transition-colors" title="Supprimer">
-                           <Trash2 className="w-4 h-4" />
-                         </button>
-                       </div>
-                     ))}
-                     {facilities.length === 0 && <p className="text-sm text-slate-400 italic text-center py-8">Aucun lieu de pratique défini.</p>}
-                  </div>
-                </div>
-              )}
-            </div>
-          </div>
-        </div>
-      )}
+      
 
     </div>
   );
