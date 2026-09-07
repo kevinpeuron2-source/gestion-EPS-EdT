@@ -14,6 +14,7 @@ import Layout from "./components/Layout";
 import Schedule from "./pages/Schedule";
 import Activities from "./pages/Activities";
 import Settings from "./pages/Settings";
+import AnnualPlanning from "./pages/AnnualPlanning";
 import Import from "./pages/Import";
 
 export function cn(...inputs: ClassValue[]) {
@@ -81,6 +82,7 @@ export default function App() {
           <Route index element={<Navigate to="/schedule" replace />} />
           <Route path="schedule" element={<Schedule />} />
           <Route path="activities" element={<Activities />} />
+          <Route path="annual" element={<AnnualPlanning />} />
           <Route path="import" element={<Import />} />
           <Route path="settings" element={<Settings />} />
         </Route>
