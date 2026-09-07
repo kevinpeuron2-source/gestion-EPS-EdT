@@ -2,8 +2,10 @@ import React, { useState } from "react";
 import { useStore } from "../store/useStore";
 import { db } from "../lib/firebase";
 import { collection, addDoc, deleteDoc, doc, updateDoc } from "firebase/firestore";
-import { Plus, Trash2, Activity as ActivityIcon, CalendarDays, Wand2, Lock, LockOpen, Printer, Settings as SettingsIcon, MapPin } from "lucide-react";
+import { Plus, Trash2, Activity as ActivityIcon, CalendarDays, Wand2, Lock, LockOpen, Printer, Settings as SettingsIcon, MapPin, Search } from "lucide-react";
 import { getISOWeek, parseISO } from "date-fns";
+import { EmptyPeriodsModal } from '../components/EmptyPeriodsModal';
+
 
 export default function AnnualPlanning() {
   const { activities, absences, classes, facilities, courses, scheduledActivities, settings } = useStore();
@@ -11,6 +13,7 @@ export default function AnnualPlanning() {
   
 
   const [showSettingsModal, setShowSettingsModal] = useState(false);
+  const [showEmptyPeriodsModal, setShowEmptyPeriodsModal] = useState(false);
   const [activeTab, setActiveTab] = useState<'activities' | 'facilities'>('activities');
   
   const [newFacilityName, setNewFacilityName] = useState("");
@@ -815,6 +818,27 @@ const [editingActivityId, setEditingActivityId] = useState<string | null>(null);
 
       
 
-    </div>
+    
+      <div className="fixed bottom-6 right-6 z-40">
+        <button 
+          onClick={() => setShowEmptyPeriodsModal(true)}
+          className="bg-indigo-600 hover:bg-indigo-700 text-white p-4 rounded-full shadow-xl hover:shadow-2xl transition-all group flex items-center justify-center"
+          title="Voir les périodes sans activités"
+        >
+          <Search className="w-6 h-6" />
+        </button>
+      </div>
+
+      {showEmptyPeriodsModal && (
+        <EmptyPeriodsModal 
+          onClose={() => setShowEmptyPeriodsModal(false)}
+          weekNumbers={weekNumbers}
+          isHoliday={isHoliday}
+          checkIfAbsent={checkIfAbsent}
+          totalWks={totalWks}
+          groupedRows={groupedRows}
+        />
+      )}
+</div>
   );
 }
