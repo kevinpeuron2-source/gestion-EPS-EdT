@@ -86,6 +86,19 @@ function WeeklyView({ selectedTeacher, currentDate, setCurrentDate }: any) {
   const currentWeek = getISOWeek(currentDate);
   const startDate = startOfWeek(currentDate, { weekStartsOn: 1 });
   
+  
+  const startW = settings?.startWeek || 36;
+  const endW = settings?.endWeek || 27;
+  const weekNumbers = useMemo(() => getWeekNumbers(startW, endW), [startW, endW]);
+
+  const isHoliday = (day: Date) => {
+    const calWk = getISOWeek(day);
+    return settings?.holidays?.some(h => {
+        const hStart = getWeekNumbers(h.startWeek, h.endWeek);
+        return hStart.includes(calWk);
+    }) || false;
+  };
+
   const filteredCourses = useMemo(() => {
     return courses.filter(c => selectedTeacher === 'all' || c.teacherId === selectedTeacher);
   }, [courses, selectedTeacher]);
@@ -270,8 +283,12 @@ function MonthlyView({ selectedTeacher, currentDate, setCurrentDate }: any) {
           
           const dayCourses = filteredCourses.filter(c => c.dayOfWeek === capitalizedDayName);
 
+          
+          const isHol = isHoliday(day);
+
           return (
-            <div key={idx} className={`bg-white p-2 flex flex-col h-full min-h-[120px] ${!isCurrentMonth ? 'opacity-50 bg-slate-50/50' : ''}`}>
+            <div key={idx} className={`p-2 flex flex-col h-full min-h-[120px] ${isHol ? 'bg-slate-200' : 'bg-white'} ${!isCurrentMonth ? 'opacity-50' : ''}`}>
+
               <div className="flex justify-between items-center mb-1">
                 <span className={`text-sm font-bold w-7 h-7 flex items-center justify-center rounded-full ${format(day, 'yyyy-MM-dd') === format(new Date(), 'yyyy-MM-dd') ? 'bg-blue-600 text-white' : 'text-slate-700'}`}>
                   {format(day, 'd')}
@@ -283,12 +300,19 @@ function MonthlyView({ selectedTeacher, currentDate, setCurrentDate }: any) {
                   const tClass = classes.find(c => c.id === course.classId);
                   const act = getActiveActivity(course, calWk);
                   const fac = facilities.find(f => f.id === (act ? act.facilityId : course.facilityId));
+                  
+                  const isAbs = checkIfAbsent(tClass?.id || '', calWk);
+                  
                   return (
-                    <div key={course.id} className="text-[10px] p-1 rounded border leading-tight shadow-sm" style={{ backgroundColor: fac?.color || tClass?.color || '#e2e8f0', borderColor: 'rgba(0,0,0,0.1)' }}>
-                      <span className="font-bold text-slate-800">{course.startTime}</span> <span className="font-semibold text-slate-900">{tClass?.name}</span>
-                      {act && <div className="text-[9px] truncate text-slate-800 font-bold">{act.name}</div>}
+                    <div key={course.id} className="text-[10px] p-1 rounded border leading-tight shadow-sm relative overflow-hidden" style={{ backgroundColor: fac?.color || tClass?.color || '#e2e8f0', borderColor: 'rgba(0,0,0,0.1)' }}>
+                      {isAbs && <div className="absolute inset-0 z-10" style={{ backgroundImage: 'repeating-linear-gradient(45deg, transparent, transparent 4px, rgba(0,0,0,0.9) 4px, rgba(0,0,0,0.9) 8px)' }}></div>}
+                      <div className={`relative z-20 ${isAbs ? 'opacity-0' : ''}`}>
+                        <span className="font-bold text-slate-800">{course.startTime}</span> <span className="font-semibold text-slate-900">{tClass?.name}</span>
+                        {act && <div className="text-[9px] truncate text-slate-800 font-bold">{act.name}</div>}
+                      </div>
                     </div>
                   );
+
                 })}
               </div>
             </div>
@@ -361,7 +385,7 @@ function YearlyView({ selectedTeacher }: any) {
               </div>
               <div className="flex">
                 {weekNumbers.map((w, i) => (
-                  <div key={i} className={`w-10 shrink-0 border-b-2 border-r border-slate-800 flex flex-col items-center justify-end pb-2 ${isHoliday(i + 1) ? 'bg-slate-100 text-slate-400' : 'bg-white'}`}>
+                  <div key={i} className={`w-10 shrink-0 border-b-2 border-r border-slate-800 flex flex-col items-center justify-end pb-2 ${isHoliday(i + 1) ? 'bg-slate-300' : 'bg-white'}`}>
                     <span className="text-[10px] font-bold rotate-180" style={{ writingMode: 'vertical-rl' }}>Sem {w}</span>
                   </div>
                 ))}
@@ -398,13 +422,14 @@ function YearlyView({ selectedTeacher }: any) {
                     })}
 
                     {weekNumbers.map((w, i) => {
+                      
                       if (checkIfAbsent(row.c.id, w)) {
                         return (
-                          <div key={`abs-${i}`} className="absolute h-full w-10 flex items-center justify-center" style={{ left: i * 40, zIndex: 5 }}>
-                            <div className="w-8 h-[80%] border-2 border-red-500 rounded bg-red-100/50 flex items-center justify-center text-red-600 font-bold text-[10px]" title="Absent">A</div>
+                          <div key={`abs-${i}`} className="absolute h-[80%] w-10 flex items-center justify-center border-y border-slate-300" style={{ left: i * 40, zIndex: 10, backgroundImage: 'repeating-linear-gradient(45deg, transparent, transparent 4px, rgba(0,0,0,0.9) 4px, rgba(0,0,0,0.9) 8px)' }}>
                           </div>
                         )
                       }
+
                       return null;
                     })}
                   </div>

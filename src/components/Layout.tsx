@@ -29,14 +29,12 @@ export default function Layout({ onLogout }: { onLogout: () => void }) {
           <h1 className="text-xl font-semibold tracking-tight">EPS Planner <span className="text-slate-400 font-normal">| Gestion</span></h1>
         </div>
         <div className="flex items-center gap-4">
-          <Link 
-            to="/share" 
-            target="_blank" 
+          <a href="/share" target="_blank" rel="noopener noreferrer" 
             className="flex items-center gap-2 text-sm font-medium text-blue-600 bg-blue-50 hover:bg-blue-100 px-4 py-2 rounded-lg transition-colors"
           >
             <Share2 className="w-4 h-4" />
             Lien de partage
-          </Link>
+          </a>
           <div className="flex items-center gap-2 bg-emerald-50 text-emerald-700 px-3 py-1.5 rounded-full text-xs font-medium border border-emerald-100">
             <div className="w-2 h-2 rounded-full bg-emerald-500"></div>
             Synchronisé
