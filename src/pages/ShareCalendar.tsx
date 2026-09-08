@@ -144,7 +144,7 @@ export default function ShareCalendar() {
   const currentWkNum = getISOWeek(currentDate);
 
   return (
-    <div className="min-h-screen bg-slate-50 flex flex-col font-sans">
+    <div className="h-[100dvh] overflow-hidden bg-slate-50 flex flex-col font-sans">
       <header className="bg-white border-b border-slate-200 px-6 py-4 flex flex-col md:flex-row md:items-center justify-between gap-4 sticky top-0 z-50 shadow-sm print:hidden">
         <div className="flex items-center gap-3">
           <Calendar className="w-6 h-6 text-blue-600" />
@@ -235,9 +235,9 @@ export default function ShareCalendar() {
         </div>
       )}
 
-      <main className="flex-1 overflow-auto p-4 bg-slate-50 print:p-0 print:overflow-visible">
-        <div className="bg-white rounded-xl shadow-sm border border-slate-200 flex flex-col animate-in fade-in duration-300 print:shadow-none print:border-none print:rounded-none">
-          <div className="overflow-auto min-w-full pb-10 print:pb-0">
+      <main className="flex-1 overflow-hidden p-4 bg-slate-50 print:p-0 print:overflow-visible flex flex-col">
+        <div className="bg-white rounded-xl shadow-sm border border-slate-200 flex flex-col min-h-0 flex-1 animate-in fade-in duration-300 print:shadow-none print:border-none print:rounded-none">
+          <div className="overflow-auto flex-1 min-w-full pb-10 print:pb-0 relative">
             {groupedRows.length === 0 ? (
               <div className="flex items-center justify-center p-12 text-slate-400">Aucun cours trouvé pour ces critères.</div>
             ) : displayedWeeks.length === 0 ? (
