@@ -102,14 +102,14 @@ export default function Schedule() {
        let facId = c.facilityId;
        let actId = c.activityId || undefined;
        if (!absent && currentInternalWeek > 0) {
-          const sa = scheduledActivities.find(sa => sa.classId === c.classId && currentInternalWeek >= sa.startWeek && currentInternalWeek <= sa.endWeek);
+          const sa = scheduledActivities.find(sa => (sa.classId === c.classId || sa.courseId === c.id) && currentInternalWeek >= sa.startWeek && currentInternalWeek <= sa.endWeek);
           // If the course explicitly has an activityId, we use it, otherwise fallback to class scheduled activity
           const resolvedActId = c.activityId || sa?.activityId;
           if (resolvedActId) {
              const act = activities.find(a => a.id === resolvedActId);
              actId = act?.id;
              // Only override facility if course didn't have a specific facility assigned manually, OR if it's the class schedule overriding it
-             if (act && act.facilityId && (!c.facilityId || !c.activityId)) facId = act.facilityId;
+             if (act && act.facilityId) facId = act.facilityId;
           }
        }
        sigObj[c.id] = absent ? "ABS" : { facId, actId };
@@ -177,12 +177,12 @@ export default function Schedule() {
          let facId = c.facilityId;
          let actId = c.activityId || undefined;
          if (!absent) {
-            const sa = scheduledActivities.find(sa => sa.classId === c.classId && w >= sa.startWeek && w <= sa.endWeek);
+            const sa = scheduledActivities.find(sa => (sa.classId === c.classId || sa.courseId === c.id) && w >= sa.startWeek && w <= sa.endWeek);
             const resolvedActId = c.activityId || sa?.activityId;
             if (resolvedActId) {
                const act = activities.find(a => a.id === resolvedActId);
                actId = act?.id;
-               if (act && act.facilityId && (!c.facilityId || !c.activityId)) facId = act.facilityId;
+               if (act && act.facilityId) facId = act.facilityId;
             }
          }
          sigObj[c.id] = absent ? "ABS" : { facId, actId };
