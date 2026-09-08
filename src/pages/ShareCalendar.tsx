@@ -250,8 +250,8 @@ export default function ShareCalendar() {
                   </div>
                   <div className="flex">
                     {displayedWeeks.map((w, i) => (
-                      <div key={i} className={`w-10 shrink-0 border-b-2 border-r border-slate-800 flex flex-col items-center justify-end pb-2 print:border-slate-400 ${isHoliday(w) ? 'bg-slate-300' : 'bg-white'}`}>
-                        <span className="text-[9px] md:text-[10px] font-bold rotate-180" style={{ writingMode: 'vertical-rl' }}>Sem {allWeekNumbers[w - 1]}</span>
+                      <div key={i} className="w-10 shrink-0 border-b-2 border-r border-slate-800 flex flex-col items-center justify-end pb-2 print:border-slate-400 bg-white">
+                        <span className={`text-[9px] md:text-[10px] font-bold rotate-180 ${isHoliday(w) ? 'text-slate-400' : 'text-slate-800'}`} style={{ writingMode: 'vertical-rl' }}>Sem {allWeekNumbers[w - 1]}</span>
                       </div>
                     ))}
                   </div>
@@ -274,41 +274,66 @@ export default function ShareCalendar() {
                       
                       <div className="flex relative items-center py-1">
                         {displayedWeeks.map((w, i) => (
-                          <div key={i} className={`w-10 shrink-0 h-full border-r border-slate-100 print:border-slate-200 ${isHoliday(w) ? 'bg-slate-100/80 print:bg-slate-100' : ''}`} />
+                          <div key={i} className={`w-10 shrink-0 h-full border-r border-slate-100 print:border-slate-200 relative flex items-center justify-center overflow-hidden ${isHoliday(w) ? 'bg-white z-20' : ''}`}>
+    {isHoliday(w) && (
+      <span className="text-[9px] text-slate-300 font-medium absolute rotate-180 select-none" style={{ writingMode: 'vertical-rl' }}>vacances</span>
+    )}
+  </div>
                         ))}
                         
                         {/* Render SAs */}
                         {rowSAs.map(sa => {
-                          // Only render if it overlaps with displayed weeks
-                          const displayStartIdx = displayedWeeks.indexOf(sa.startWeek);
-                          const displayEndIdx = displayedWeeks.indexOf(sa.endWeek);
-                          
-                          // If it doesn't overlap at all, skip
-                          if (displayEndIdx < 0 && sa.endWeek < displayedWeeks[0]) return null;
-                          if (displayStartIdx < 0 && sa.startWeek > displayedWeeks[displayedWeeks.length - 1]) return null;
-
                           const act = activities.find(a => a.id === sa.activityId);
                           const fac = facilities.find(f => f.id === act?.facilityId);
-                          
-                          // Calculate exact rendering positions based on visible weeks
-                          // This handles partial overlaps beautifully
-                          const firstVisibleWk = Math.max(sa.startWeek, displayedWeeks[0]);
-                          const lastVisibleWk = Math.min(sa.endWeek, displayedWeeks[displayedWeeks.length - 1]);
-                          
-                          const leftPos = displayedWeeks.indexOf(firstVisibleWk) * 40;
-                          const width = ((displayedWeeks.indexOf(lastVisibleWk) - displayedWeeks.indexOf(firstVisibleWk)) + 1) * 40;
-                          
-                          // If we couldn't find indices, it means it falls in a gap (e.g. holiday not rendered? but we render holidays)
-                          if (leftPos < 0 || width <= 0) return null;
+
+                          const blocks = [];
+                          let currentBlock = null;
+                          for(let w = sa.startWeek; w <= sa.endWeek; w++) {
+                            const isAbsent = checkIfAbsent(row.c.id, w);
+                            if (!isHoliday(w) && !isAbsent) {
+                              if (!currentBlock) currentBlock = {start: w, end: w};
+                              else currentBlock.end = w;
+                            } else {
+                              if (currentBlock) {
+                                blocks.push({...currentBlock});
+                                currentBlock = null;
+                              }
+                            }
+                          }
+                          if (currentBlock) blocks.push(currentBlock);
 
                           return (
-                            <div key={sa.id} className="absolute h-[80%] rounded shadow-sm border overflow-hidden p-0.5 flex flex-col justify-center print:border-slate-300 print:shadow-none" style={{ left: leftPos + 2, width: width - 4, backgroundColor: fac?.color || '#e2e8f0', borderColor: 'rgba(0,0,0,0.1)' }}>
-                              <span className="text-[8px] md:text-[9px] font-bold text-slate-900 leading-tight truncate px-0.5">{act?.name}</span>
-                              <span className="text-[7px] md:text-[8px] text-slate-700 truncate px-0.5 hidden md:block">{fac?.name}</span>
-                            </div>
+                            <React.Fragment key={sa.id}>
+                              {blocks.map((block, idx) => {
+                                const displayStartIdx = displayedWeeks.indexOf(block.start);
+                                const displayEndIdx = displayedWeeks.indexOf(block.end);
+                                
+                                if (displayEndIdx < 0 && block.end < displayedWeeks[0]) return null;
+                                if (displayStartIdx < 0 && block.start > displayedWeeks[displayedWeeks.length - 1]) return null;
+
+                                const firstVisibleWk = Math.max(block.start, displayedWeeks[0]);
+                                const lastVisibleWk = Math.min(block.end, displayedWeeks[displayedWeeks.length - 1]);
+                                
+                                const leftIdx = displayedWeeks.indexOf(firstVisibleWk);
+                                const rightIdx = displayedWeeks.indexOf(lastVisibleWk);
+
+                                if (leftIdx < 0 || rightIdx < 0) return null;
+
+                                const leftPos = leftIdx * 40;
+                                const width = ((rightIdx - leftIdx) + 1) * 40;
+
+                                if (width <= 0) return null;
+
+                                return (
+                                  <div key={`${sa.id}-${idx}`} className={`absolute h-[80%] shadow-sm border overflow-hidden p-0.5 flex flex-col justify-center print:border-slate-300 print:shadow-none ${idx === 0 ? 'rounded-l' : ''} ${idx === blocks.length - 1 ? 'rounded-r' : ''} ${idx > 0 && idx < blocks.length - 1 ? 'rounded-none border-x-0' : ''}`} style={{ left: leftPos + 2, width: width - 4, backgroundColor: fac?.color || '#e2e8f0', borderColor: 'rgba(0,0,0,0.1)' }}>
+                                    <span className="text-[8px] md:text-[9px] font-bold text-slate-900 leading-tight truncate px-0.5">{act?.name}</span>
+                                    <span className="text-[7px] md:text-[8px] text-slate-700 truncate px-0.5 hidden md:block">{fac?.name}</span>
+                                  </div>
+                                )
+                              })}
+                            </React.Fragment>
                           )
                         })}
-
                         {/* Render Absences */}
                         {displayedWeeks.map((w, i) => {
                           if (checkIfAbsent(row.c.id, w)) {

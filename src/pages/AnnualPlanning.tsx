@@ -511,7 +511,7 @@ const [editingActivityId, setEditingActivityId] = useState<string | null>(null);
                     const actualWkIndex = i + 1 + offsetWks;
                     const isHol = isHoliday(actualWkIndex);
                     return (
-                      <div key={i} className={`flex-1 text-center text-[10px] ${isHol ? 'text-amber-500 font-bold bg-amber-50 print:bg-transparent' : 'text-slate-400'} border-l border-slate-100 first:border-0`} title={`Semaine Calendaire ${calendarWeek}`}>
+                      <div key={i} className={`flex-1 text-center text-[10px] ${isHol ? 'text-slate-400 font-bold bg-white' : 'text-slate-400'} border-l border-slate-100 first:border-0`} title={`Semaine Calendaire ${calendarWeek}`}>
                         {calendarWeek}
                       </div>
                     );
@@ -576,7 +576,7 @@ const [editingActivityId, setEditingActivityId] = useState<string | null>(null);
                               if (renderStart > displayedTotalWks - 1 || renderEnd < 0) return null;
                               const left = (renderStart / displayedTotalWks) * 100;
                               const width = ((renderEnd - renderStart + 1) / displayedTotalWks) * 100;
-                              return <div key={h.id} className="absolute top-0 bottom-0 bg-amber-100/50 print:bg-amber-50 mix-blend-multiply" style={{ left: `${left}%`, width: `${width}%` }} title={h.name} />
+                              return <div key={h.id} className="absolute top-0 bottom-0 bg-white border-x border-slate-100 flex items-center justify-center overflow-hidden z-10" style={{ left: `${left}%`, width: `${width}%` }} title={h.name}><span className="text-[10px] text-slate-300 uppercase tracking-widest font-semibold opacity-70 select-none">Vacances</span></div>
                           })}
                           {/* Clickable Grid Overlay */}
                           <div className="absolute inset-0 flex pointer-events-none">
