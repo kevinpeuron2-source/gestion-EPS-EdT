@@ -258,7 +258,7 @@ export default function ShareCalendar() {
                 </div>
                 
                 {groupedRows.map((row, idx) => {
-                  const rowSAs = scheduledActivities.filter(sa => sa.classId === row.c.id || sa.courseId === row.course.id);
+                  const rowSAs = scheduledActivities.filter(sa => sa.courseId ? sa.courseId === row.course.id : sa.classId === row.c.id);
                   const teacherName = teachers.find(t => t.id === row.course.teacherId)?.name || 'Inconnu';
 
                   return (

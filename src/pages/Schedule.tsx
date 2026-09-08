@@ -102,7 +102,7 @@ export default function Schedule() {
        let facId = c.facilityId;
        let actId = c.activityId || undefined;
        if (!absent && currentInternalWeek > 0) {
-          const sa = scheduledActivities.find(sa => (sa.classId === c.classId || sa.courseId === c.id) && currentInternalWeek >= sa.startWeek && currentInternalWeek <= sa.endWeek);
+          const sa = scheduledActivities.find(sa => (sa.courseId ? sa.courseId === c.id : sa.classId === c.classId) && currentInternalWeek >= sa.startWeek && currentInternalWeek <= sa.endWeek);
           // If the course explicitly has an activityId, we use it, otherwise fallback to class scheduled activity
           const resolvedActId = c.activityId || sa?.activityId;
           if (resolvedActId) {
@@ -177,7 +177,7 @@ export default function Schedule() {
          let facId = c.facilityId;
          let actId = c.activityId || undefined;
          if (!absent) {
-            const sa = scheduledActivities.find(sa => (sa.classId === c.classId || sa.courseId === c.id) && w >= sa.startWeek && w <= sa.endWeek);
+            const sa = scheduledActivities.find(sa => (sa.courseId ? sa.courseId === c.id : sa.classId === c.classId) && w >= sa.startWeek && w <= sa.endWeek);
             const resolvedActId = c.activityId || sa?.activityId;
             if (resolvedActId) {
                const act = activities.find(a => a.id === resolvedActId);
