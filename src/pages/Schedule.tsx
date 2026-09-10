@@ -1,6 +1,6 @@
 import React, { useState } from "react";
 import { useStore } from "../store/useStore";
-import { Printer, Users, User, X, Trash2, Plus, Edit, ChevronLeft, ChevronRight, Calendar as CalendarIcon, CheckSquare } from "lucide-react";
+import { Printer, Users, User, X, Trash2, Plus, Edit, ChevronLeft, ChevronRight, Calendar as CalendarIcon, CheckSquare, MapPin } from "lucide-react";
 import { db } from "../lib/firebase";
 import { collection, addDoc, deleteDoc, doc, updateDoc } from "firebase/firestore";
 import { Course } from "../types";
@@ -25,9 +25,11 @@ export default function Schedule() {
   const [currentDate, setCurrentDate] = useState(new Date());
   
   const [showPrintModal, setShowPrintModal] = useState(false);
-  const [printMode, setPrintMode] = useState<'global' | 'teachers' | null>(null);
-  const [selectingTeachers, setSelectingTeachers] = useState(false);
+  const [viewMode, setViewMode] = useState<'teachers' | 'facilities'>('teachers');
+  const [printMode, setPrintMode] = useState<'global' | 'teachers' | 'facilities' | null>(null);
+  const [printSelectionStep, setPrintSelectionStep] = useState<'none' | 'teachers' | 'facilities'>('none');
   const [selectedTeachersForPrint, setSelectedTeachersForPrint] = useState<string[]>([]);
+  const [selectedFacilitiesForPrint, setSelectedFacilitiesForPrint] = useState<string[]>([]);
   const [printFit, setPrintFit] = useState<'contain' | 'width' | 'height'>('contain');
   const [printType, setPrintType] = useState<'neutral' | 'planned'>('neutral');
 
@@ -224,7 +226,8 @@ export default function Schedule() {
 
   const handleOpenPrintModal = () => {
     setSelectedTeachersForPrint(teachers.map(t => t.id));
-    setSelectingTeachers(false);
+    setSelectedFacilitiesForPrint(facilities.map(f => f.id));
+    setPrintSelectionStep('none');
     setShowPrintModal(true);
   };
 
@@ -238,10 +241,10 @@ export default function Schedule() {
      return { height: totalMins * pxPerMinute };
   };
 
-  const executePrint = (mode: 'global' | 'teachers') => {
+  const executePrint = (mode: 'global' | 'teachers' | 'facilities') => {
     setPrintMode(mode);
     setShowPrintModal(false);
-    setSelectingTeachers(false);
+    setPrintSelectionStep('none');
     setTimeout(() => {
       const style = document.createElement('style');
       style.innerHTML = `
@@ -266,7 +269,7 @@ export default function Schedule() {
     }, 300);
   };
 
-  const handleGridClick = (day: string, teacherId: string, e: React.MouseEvent<HTMLDivElement>) => {
+  const handleGridClick = (day: string, teacherId: string | null, facilityId: string | null, e: React.MouseEvent<HTMLDivElement>) => {
     if (printMode) return;
     const rect = e.currentTarget.getBoundingClientRect();
     const offsetY = e.clientY - rect.top;
@@ -425,6 +428,10 @@ export default function Schedule() {
              >
                <Plus className="w-4 h-4" /> Ajouter
              </button>
+             <select value={viewMode} onChange={e => setViewMode(e.target.value as 'teachers' | 'facilities')} className="bg-white border border-slate-200 text-slate-700 px-3 py-2 rounded-md font-medium text-sm shadow-sm appearance-none cursor-pointer hover:bg-slate-50 transition-colors">
+               <option value="teachers">Vue Enseignants</option>
+               <option value="facilities">Vue Salles</option>
+             </select>
              <button onClick={handleOpenPrintModal} className="bg-white border border-slate-200 hover:bg-slate-50 text-slate-700 px-4 py-2 rounded-md font-medium flex items-center gap-2 shadow-sm transition-colors">
                <Printer className="w-4 h-4" /> Imprimer
              </button>
@@ -433,10 +440,10 @@ export default function Schedule() {
       </header>
 
       {/* Main scrolling view for screen (hidden when we want to print ONLY teachers) */}
-      <div className={`flex-1 overflow-auto bg-slate-50 flex items-start flex-col ${printMode === 'teachers' ? 'print:hidden' : 'print:p-0 print:overflow-visible'}`}>
+      <div className={`flex-1 overflow-auto bg-slate-50 flex items-start flex-col ${(printMode === 'teachers' || printMode === 'facilities') ? 'print:hidden' : 'print:p-0 print:overflow-visible'}`}>
         {activePeriods.map(period => (
           <div key={period.id} className={`w-full flex-1 flex items-start ${printMode && activePeriods.length > 1 ? 'print:page-break-after-always pb-8' : ''}`}>
-            <div className={`flex flex-row w-max min-w-full relative ${printMode === 'teachers' ? '' : 'print:w-max'}`}>
+            <div className={`flex flex-row w-max min-w-full relative ${(printMode === 'teachers' || printMode === 'facilities') ? '' : 'print:w-max'}`}>
               
               {/* Optional Title for Planification Mode Print */}
               {printMode && activePeriods.length > 1 && (
@@ -444,7 +451,7 @@ export default function Schedule() {
               )}
 
               {/* Time Axis */}
-              <div className={`w-12 shrink-0 bg-slate-50 ${printMode === 'teachers' ? '' : 'print:bg-white border-r border-slate-200 sticky left-0 z-30 print:static'}`}>
+              <div className={`w-12 shrink-0 bg-slate-50 ${(printMode === 'teachers' || printMode === 'facilities') ? '' : 'print:bg-white border-r border-slate-200 sticky left-0 z-30 print:static'}`}>
                 <div className="border-b border-slate-200" style={{ height: HEADER_HEIGHT }}></div>
                 <div className="relative" style={getContainerHeightStyle()}>
                    {Array.from({ length: TIME_END - TIME_START + 1 }).map((_, i) => (
@@ -460,7 +467,7 @@ export default function Schedule() {
                 {DAYS.map((day, dIdx) => (
                   <div key={day} className="flex flex-col border-r-2 border-slate-300 last:border-r-0 flex-1 min-w-0">
                     {/* Day Header */}
-                    <div className={`h-8 bg-slate-800 text-white text-sm font-bold flex items-center justify-center gap-1 ${printMode === 'teachers' ? '' : 'print:bg-slate-200 print:text-black print:border-b print:border-slate-300'}`}>
+                    <div className={`h-8 bg-slate-800 text-white text-sm font-bold flex items-center justify-center gap-1 ${(printMode === 'teachers' || printMode === 'facilities') ? '' : 'print:bg-slate-200 print:text-black print:border-b print:border-slate-300'}`}>
                       <span>{day}</span>
                       {!printMode && (
                          <span className="text-xs font-medium opacity-80">
@@ -468,11 +475,15 @@ export default function Schedule() {
                          </span>
                       )}
                     </div>
-                    {/* Teachers Header */}
+                    {/* View Mode Header */}
                     <div className="flex flex-row h-8 border-b border-slate-200 bg-white">
-                      {teachers.map(teacher => (
-                        <div key={teacher.id} className={`w-24 ${printMode === 'teachers' ? '' : 'print:w-20'} shrink-0 border-r border-slate-100 last:border-r-0 flex items-center justify-center text-[10px] font-bold text-slate-700 truncate px-1`} title={teacher.name}>
+                      {viewMode === 'teachers' ? teachers.map(teacher => (
+                        <div key={teacher.id} className={`w-24 ${(printMode === 'teachers' || printMode === 'facilities') ? '' : 'print:w-20'} shrink-0 border-r border-slate-100 last:border-r-0 flex items-center justify-center text-[10px] font-bold text-slate-700 truncate px-1`} title={teacher.name}>
                           {teacher.name}
+                        </div>
+                      )) : facilities.map(facility => (
+                        <div key={facility.id} className={`w-24 ${(printMode === 'teachers' || printMode === 'facilities') ? '' : 'print:w-20'} shrink-0 border-r border-slate-100 last:border-r-0 flex items-center justify-center text-[10px] font-bold text-slate-700 truncate px-1`} title={facility.name}>
+                          {facility.name}
                         </div>
                       ))}
                     </div>
@@ -483,13 +494,13 @@ export default function Schedule() {
                         <div key={i} className="absolute w-full border-t border-slate-100 pointer-events-none" style={{ top: `${((i + 1) * 60 / totalMins) * 100}%` }}></div>
                       ))}
     
-                      {teachers.map((teacher, tIdx) => {
+                      {viewMode === 'teachers' ? teachers.map((teacher, tIdx) => {
                         const dayCourses = courses.filter(c => c.dayOfWeek === day && (c.teacherId === teacher.id || c.coTeacherIds?.includes(teacher.id)));
                         
                         return (
                           <div key={teacher.id} 
-                            onClick={(e) => handleGridClick(day, teacher.id, e)}
-                            className={`w-24 ${printMode === 'teachers' ? '' : 'print:w-20'} shrink-0 relative border-r border-slate-100 last:border-r-0 cursor-pointer hover:bg-blue-50/30 transition-colors ${tIdx % 2 !== 0 ? 'bg-slate-50/50 ' + (printMode === 'teachers' ? '' : 'print:bg-transparent') : ''}`}
+                            onClick={(e) => handleGridClick(day, teacher.id, null, e)}
+                            className={`w-24 ${(printMode === 'teachers' || printMode === 'facilities') ? '' : 'print:w-20'} shrink-0 relative border-r border-slate-100 last:border-r-0 cursor-pointer hover:bg-blue-50/30 transition-colors ${tIdx % 2 !== 0 ? 'bg-slate-50/50 ' + ((printMode === 'teachers' || printMode === 'facilities') ? '' : 'print:bg-transparent') : ''}`}
                           >
                             {dayCourses.filter(period.filter).map(course => {
                                 const startMins = timeToMinutes(course.startTime) - TIME_START * 60;
@@ -504,7 +515,7 @@ export default function Schedule() {
                                 return (
                                   <div key={course.id} 
                                     onClick={(e) => handleCourseClick(course, e)}
-                                    className={`absolute left-0 right-0 rounded border p-1 overflow-hidden m-0.5 cursor-pointer hover:shadow-md hover:brightness-95 transition-all ${printMode === 'teachers' ? '' : 'print:break-inside-avoid'}`}
+                                    className={`absolute left-0 right-0 rounded border p-1 overflow-hidden m-0.5 cursor-pointer hover:shadow-md hover:brightness-95 transition-all ${(printMode === 'teachers' || printMode === 'facilities') ? '' : 'print:break-inside-avoid'}`}
                                     style={{
                                       top: `${(startMins / totalMins) * 100}%`,
                                       height: `calc(${(dur / totalMins) * 100}% - 4px)`,
@@ -537,6 +548,55 @@ export default function Schedule() {
                             })}
                           </div>
                         )
+                      }) : facilities.map((facility, fIdx) => {
+                        const dayCourses = courses.filter(c => c.dayOfWeek === day && period.getFacility(c)?.id === facility.id && !c.isUnavailability);
+                        
+                        return (
+                          <div key={facility.id} 
+                            onClick={(e) => handleGridClick(day, null, facility.id, e)}
+                            className={`w-24 ${(printMode === 'teachers' || printMode === 'facilities') ? '' : 'print:w-20'} shrink-0 relative border-r border-slate-100 last:border-r-0 cursor-pointer hover:bg-blue-50/30 transition-colors ${fIdx % 2 !== 0 ? 'bg-slate-50/50 ' + ((printMode === 'teachers' || printMode === 'facilities') ? '' : 'print:bg-transparent') : ''}`}
+                          >
+                            {dayCourses.filter(period.filter).map(course => {
+                                const startMins = timeToMinutes(course.startTime) - TIME_START * 60;
+                                const dur = timeToMinutes(course.endTime) - timeToMinutes(course.startTime);
+                                const tClass = classes.find(c => c.id === course.classId);
+                                const teacher = teachers.find(t => t.id === course.teacherId);
+                                const act = period.getActivity ? period.getActivity(course) : undefined;
+                                const isAbsent = period.isAbsent(course);
+                                const bgColor = tClass?.color || facility.color || '#e2e8f0';
+    
+                                return (
+                                  <div key={course.id} 
+                                    onClick={(e) => handleCourseClick(course, e)}
+                                    className={`absolute left-0 right-0 rounded border p-1 overflow-hidden m-0.5 cursor-pointer hover:shadow-md hover:brightness-95 transition-all ${(printMode === 'teachers' || printMode === 'facilities') ? '' : 'print:break-inside-avoid'}`}
+                                    style={{
+                                      top: `${(startMins / totalMins) * 100}%`,
+                                      height: `calc(${(dur / totalMins) * 100}% - 4px)`,
+                                      backgroundColor: bgColor,
+                                      borderColor: 'rgba(0,0,0,0.1)',
+                                      borderStyle: 'solid'
+                                    }}
+                                  >
+                                    <div className="flex flex-col h-full pointer-events-none">
+                                      <div className="text-[8px] font-mono leading-none text-slate-700/90 mb-0.5">
+                                        {course.startTime}-{course.endTime}
+                                        {course.weekType && course.weekType !== 'ALL' && <span className="ml-1 text-[7px] bg-white/60 px-0.5 rounded text-slate-600">Sem.{course.weekType}</span>}
+                                      </div>
+                                      {isAbsent ? (
+                                        <div className="text-[9px] font-bold uppercase text-red-600 bg-red-100 px-1 py-0.5 rounded inline-block truncate mt-1">Absent</div>
+                                      ) : (
+                                        <>
+                                          <div className="font-bold text-[10px] leading-tight text-slate-800 truncate">{tClass?.name || '?'}</div>
+                                          {act && <div className="text-[8px] font-bold text-slate-900 mt-0.5 truncate">{act.name}</div>}
+                                          {teacher && <div className="text-[8px] font-medium text-slate-700 mt-0.5 bg-white/40 px-0.5 rounded inline-block truncate max-w-full">{teacher.name}</div>}
+                                        </>
+                                      )}
+                                    </div>
+                                  </div>
+                                )
+                            })}
+                          </div>
+                        )
                       })}
                     </div>
                   </div>
@@ -555,7 +615,7 @@ export default function Schedule() {
               <h3 className="font-bold text-slate-800">Options d'impression</h3>
             </div>
             <div className="p-6 flex flex-col gap-3">
-              {!selectingTeachers ? (
+              {printSelectionStep === 'none' ? (
                 <>
                   <div className="mb-2">
                     <label className="block text-xs font-semibold text-slate-600 mb-1">Type d'emploi du temps</label>
@@ -582,7 +642,7 @@ export default function Schedule() {
                     </div>
                   </button>
                   
-                  <button onClick={() => setSelectingTeachers(true)} className="flex items-center gap-3 p-4 rounded-lg border border-slate-200 hover:border-blue-500 hover:bg-blue-50 transition-colors text-left group">
+                  <button onClick={() => setPrintSelectionStep('teachers')} className="flex items-center gap-3 p-4 rounded-lg border border-slate-200 hover:border-blue-500 hover:bg-blue-50 transition-colors text-left group">
                     <div className="bg-slate-100 p-2 rounded-md group-hover:bg-blue-100 group-hover:text-blue-600 transition-colors text-slate-600">
                       <User className="w-5 h-5" />
                     </div>
@@ -591,8 +651,17 @@ export default function Schedule() {
                       <div className="text-xs text-slate-500">Sélectionner et imprimer 1 page par enseignant</div>
                     </div>
                   </button>
+                  <button onClick={() => setPrintSelectionStep('facilities')} className="flex items-center gap-3 p-4 rounded-lg border border-slate-200 hover:border-blue-500 hover:bg-blue-50 transition-colors text-left group">
+                    <div className="bg-slate-100 p-2 rounded-md group-hover:bg-blue-100 group-hover:text-blue-600 transition-colors text-slate-600">
+                      <MapPin className="w-5 h-5" />
+                    </div>
+                    <div>
+                      <div className="font-bold text-slate-800 text-sm">Par salle</div>
+                      <div className="text-xs text-slate-500">Sélectionner et imprimer 1 page par salle</div>
+                    </div>
+                  </button>
                 </>
-              ) : (
+              ) : printSelectionStep === 'teachers' ? (
                 <div className="flex flex-col gap-2 max-h-64 overflow-y-auto pr-2">
                   <div className="flex justify-between items-center mb-2">
                     <span className="text-sm font-semibold text-slate-700">Sélectionnez les enseignants</span>
@@ -612,15 +681,35 @@ export default function Schedule() {
                   ))}
                   {teachers.length === 0 && <p className="text-sm text-slate-500 italic">Aucun enseignant</p>}
                 </div>
-              )}
+              ) : printSelectionStep === 'facilities' ? (
+                <div className="flex flex-col gap-2 max-h-64 overflow-y-auto pr-2">
+                  <div className="flex justify-between items-center mb-2">
+                    <span className="text-sm font-semibold text-slate-700">Sélectionnez les salles</span>
+                    <button onClick={() => setSelectedFacilitiesForPrint(facilities.map(f => f.id))} className="text-xs text-blue-600 hover:underline">Tout cocher</button>
+                  </div>
+                  {facilities.map(f => (
+                    <label key={f.id} className="flex items-center gap-2 cursor-pointer bg-slate-50 p-2 rounded border border-slate-100 hover:bg-slate-100">
+                      <input type="checkbox" checked={selectedFacilitiesForPrint.includes(f.id)} 
+                        onChange={(e) => {
+                          if (e.target.checked) setSelectedFacilitiesForPrint([...selectedFacilitiesForPrint, f.id]);
+                          else setSelectedFacilitiesForPrint(selectedFacilitiesForPrint.filter(id => id !== f.id));
+                        }} 
+                        className="rounded text-blue-600 focus:ring-blue-500" 
+                      />
+                      <span className="text-sm font-medium text-slate-700">{f.name}</span>
+                    </label>
+                  ))}
+                  {facilities.length === 0 && <p className="text-sm text-slate-500 italic">Aucune salle</p>}
+                </div>
+              ) : null}
             </div>
             <div className="px-6 py-3 border-t border-slate-100 bg-slate-50 flex justify-end gap-2">
               <button type="button" onClick={() => {
-                if (selectingTeachers) setSelectingTeachers(false);
+                if (printSelectionStep !== 'none') setPrintSelectionStep('none');
                 else setShowPrintModal(false);
               }} className="px-4 py-2 bg-white border border-slate-300 hover:bg-slate-50 text-slate-700 rounded-md font-medium transition-colors text-sm">Annuler</button>
-              {selectingTeachers && (
-                <button type="button" onClick={() => executePrint('teachers')} disabled={selectedTeachersForPrint.length === 0} className="px-4 py-2 bg-blue-600 disabled:opacity-50 hover:bg-blue-700 text-white rounded-md font-medium transition-colors text-sm">
+              {(printSelectionStep === 'teachers' || printSelectionStep === 'facilities') && (
+                <button type="button" onClick={() => executePrint(printSelectionStep as any)} disabled={selectedTeachersForPrint.length === 0} className="px-4 py-2 bg-blue-600 disabled:opacity-50 hover:bg-blue-700 text-white rounded-md font-medium transition-colors text-sm">
                   Valider
                 </button>
               )}
@@ -701,6 +790,97 @@ export default function Schedule() {
                                        <>
                                          <div className="font-bold text-sm text-slate-900 leading-tight">{tClass?.name || 'Classe inconnue'}</div>
                                          {fac && <div className="text-xs font-medium text-slate-800 mt-1 bg-white/50 px-1 rounded inline-block">{fac.name}</div>}
+                                       </>
+                                     )}
+                                   </div>
+                                 )
+                               })}
+                             </div>
+                           </div>
+                         )
+                       })}
+                     </div>
+                   </div>
+                 </div>
+               ))}
+             </React.Fragment>
+          ))}
+        </div>
+      )}
+      {/* Hidden print-only view for 'facilities' mode */}
+      {printMode === 'facilities' && (
+        <div className="hidden print:block w-full text-slate-900 bg-white">
+          {facilities.filter(facility => selectedFacilitiesForPrint.includes(facility.id)).map(facility => (
+             <React.Fragment key={facility.id}>
+               {periods.map(period => (
+                 <div key={`${facility.id}-${period.id}`} className="print:page-break-after-always pb-8">
+                   <h2 className="text-2xl font-bold mb-4">{facility.name} - Occupation {periods.length > 1 ? `- ${period.name}` : ''}</h2>
+                   <div className="flex border border-slate-300">
+                     {/* Time Axis for Facility */}
+                     <div className="w-16 shrink-0 bg-slate-100 border-r border-slate-300">
+                       <div className="h-10 border-b border-slate-300"></div>
+                       <div className="relative" style={getContainerHeightStyle()}>
+                         {Array.from({ length: TIME_END - TIME_START + 1 }).map((_, i) => (
+                           <div key={i} className="absolute w-full px-2 text-right text-xs text-slate-600 font-medium transform -translate-y-1/2" style={{ top: `${(i * 60 / totalMins) * 100}%` }}>
+                             {TIME_START + i}h
+                           </div>
+                         ))}
+                       </div>
+                     </div>
+     
+                     {/* Days for Facility */}
+                     <div className="flex flex-row flex-1">
+                       {DAYS.map((day, dIdx) => {
+                         // Apply filters for planifications
+                         let dayCourses = courses.filter(c => c.dayOfWeek === day);
+                         dayCourses = dayCourses.filter(period.filter);
+                         
+                         // Apply filter for this facility
+                         dayCourses = dayCourses.filter(course => {
+                             if (course.isUnavailability) return false;
+                             const fac = period.getFacility(course);
+                             return fac?.id === facility.id;
+                         });
+
+                         return (
+                           <div key={day} className={`flex flex-col flex-1 ${dIdx < DAYS.length - 1 ? 'border-r border-slate-300' : ''}`}>
+                             <div className="h-10 bg-slate-200 text-slate-800 font-bold flex items-center justify-center border-b border-slate-300">
+                               {day}
+                             </div>
+                             <div className="relative bg-white" style={getContainerHeightStyle()}>
+                               {/* Hourly horizontal lines */}
+                               {Array.from({ length: TIME_END - TIME_START }).map((_, i) => (
+                                 <div key={i} className="absolute w-full border-t border-slate-200 pointer-events-none" style={{ top: `${((i + 1) * 60 / totalMins) * 100}%` }}></div>
+                               ))}
+     
+                               {/* Courses */}
+                               {dayCourses.map(course => {
+                                 const startMins = timeToMinutes(course.startTime) - TIME_START * 60;
+                                 const dur = timeToMinutes(course.endTime) - timeToMinutes(course.startTime);
+                                 const tClass = classes.find(c => c.id === course.classId);
+                                 const teacher = teachers.find(t => t.id === course.teacherId);
+                                 const bgColor = tClass?.color || facility.color || '#e2e8f0';
+     
+                                 return (
+                                   <div key={course.id} className="absolute left-1 right-1 rounded-md border p-1.5 overflow-hidden break-inside-avoid shadow-sm"
+                                     style={{
+                                       top: `${(startMins / totalMins) * 100}%`,
+                                       height: `calc(${(dur / totalMins) * 100}% - 4px)`,
+                                       backgroundColor: bgColor,
+                                       borderColor: 'rgba(0,0,0,0.15)',
+                                       borderStyle: 'solid'
+                                     }}
+                                   >
+                                     <div className="text-[10px] font-mono font-bold text-slate-700/90 leading-none mb-1">
+                                        {course.startTime}-{course.endTime}
+                                        {course.weekType && course.weekType !== 'ALL' && <span className="ml-1 text-[9px] font-semibold bg-white/60 px-1 rounded text-slate-600">Sem.{course.weekType}</span>}
+                                     </div>
+                                     {period.isAbsent(course) ? (
+                                       <div className="text-xs font-bold uppercase text-red-600 bg-red-100 px-1.5 py-0.5 rounded inline-block mt-1">Absent</div>
+                                     ) : (
+                                       <>
+                                         <div className="font-bold text-sm text-slate-900 leading-tight">{tClass?.name || 'Classe inconnue'}</div>
+                                         {teacher && <div className="text-xs font-medium text-slate-800 mt-1 bg-white/50 px-1 rounded inline-block">{teacher.name}</div>}
                                        </>
                                      )}
                                    </div>
